@@ -57,7 +57,7 @@ docs/            HARDWARE, SOFTWARE_STACK, ARCHITECTURE, ROADMAP_V1_V2, GLOSSARY
 scripts/         target/ (Jetson bash, ordered) · dev/ (Windows PowerShell)
 models/          gitignored; produced on device
 tests/           unit/ (host) · device/ (target, marked) · conftest.py (markers)
-.claude/         skills/ · agents/ · workflows/ · settings.json
+.claude/         skills/ · agents/ · workflows/  (settings.local.json is machine-local)
 ```
 
 ## Coding conventions
