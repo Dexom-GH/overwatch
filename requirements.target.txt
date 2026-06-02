@@ -12,6 +12,14 @@
 # tensorrt (8.5)   -> ships with JetPack
 # pyds             -> ships with DeepStream
 
-# Transport client is added here once ADR-0001 closes:
-# redis            (if Redis chosen)
-# pyzmq            (if ZeroMQ chosen)
+# Config loading + validation. Plain PyPI installs (unlike the deps above).
+# pyyaml: imported unconditionally by config/loader.py (target runtime entry point).
+# pydantic v2: pydantic-core is a compiled Rust wheel — aarch64 / Python 3.8 wheels
+# exist, but the on-device install must be VERIFIED on the Jetson (not host-verifiable).
+pyyaml
+pydantic>=2
+
+# Transport client (ADR-0001 closed -> hybrid: ZeroMQ ephemeral tier). The actual
+# install + bus impl lands with issue #10:
+# pyzmq            (ZeroMQ — chosen)
+# redis            (only if the on-device benchmark flips ADR-0001 back to Redis)
