@@ -45,10 +45,37 @@ tests/           unit/ (host) · device/ (target, marked)
 
 ## Dev quickstart (host)
 
+> **Interpreter trap (Windows):** the bare `python` / `python3` commands often
+> resolve to the **Microsoft Store stub** (`...\WindowsApps\python.exe`), a dead
+> launcher that opens the Store instead of running Python. Pin a **real CPython**
+> (3.8+; this host uses 3.12) via a project virtualenv so `python`, `pip`, `ruff`,
+> `mypy`, and `pytest` all resolve to it. `scripts/dev/check_env.ps1` verifies this
+> and refuses the stub.
+
+Create the venv from a real interpreter (the `py` launcher or an explicit path —
+**not** bare `python`), then install and verify:
+
 ```powershell
+# 1. Create + activate a venv from a REAL CPython (pick whichever resolves):
+py -3 -m venv .venv                                        # if the py launcher exists
+# ...or by explicit path:
+& "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe" -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+# 2. Install the package + dev tools into the venv:
 pip install -e .[dev]
-$env:PYTHONPATH = "src"
-pytest -m "not device and not gpu and not zed"   # host tests
-ruff check src tests
-mypy src
+
+# 3. Verify the environment (rejects the Store stub, checks import + toolchain):
+.\scripts\dev\check_env.ps1
 ```
+
+Then the host checks (all wrapped by the dev scripts, which auto-resolve a real
+interpreter even without an activated venv):
+
+```powershell
+.\scripts\dev\lint.ps1                            # ruff + mypy
+pytest -m "not device and not gpu and not zed"    # host tests (device/gpu/zed excluded)
+```
+
+CI (`.github/workflows/ci.yml`) runs the same three gates — `ruff check src tests`,
+`mypy src`, and the host `pytest` subset — on every PR.
