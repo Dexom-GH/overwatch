@@ -1,0 +1,10 @@
+# Host dev tooling (Windows dev machine). Install with:
+#   pip install -r requirements.dev.txt
+# or: pip install -e .[dev]
+ruff
+mypy
+pytest
+
+# Host-runnable runtime deps (mirror pyproject [project].dependencies)
+numpy
+pyyaml

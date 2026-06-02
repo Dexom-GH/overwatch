@@ -1,0 +1,38 @@
+# Overwatch default runtime config (V1).
+# Layered: these defaults are overridden by an optional override yaml, then by
+# environment variables (see .env.example and src/overwatch/config/loader.py).
+# Values below are placeholders to be tuned on-device.
+
+bus:
+  # transport is undecided — ADR-0001 (redis | zeromq). Left unset on purpose.
+  transport: null
+  url_env: REDIS_URL          # env var consulted for the transport URL
+
+capture:
+  source: zed                 # zed | (ip cameras deferred)
+  source_id: zed-0
+  fps: 15                     # placeholder; confirm on-device
+
+inference:
+  detector_config: src/overwatch/inference/deepstream/configs/nvinfer_detector.txt
+  tracker_config: src/overwatch/inference/deepstream/configs/nvtracker.txt
+  reid:
+    engine: models/megadescriptor_t224_fp16.engine
+    # on-demand trigger policy (ADR-0003) — placeholders
+    refresh_seconds: 30
+    min_crop_confidence: 0.5
+
+fusion:
+  zones: []                   # see configs/default.yaml comments; define on-site
+  health:
+    immobility_seconds: 600   # placeholder: flag if stationary this long
+    lameness_score_threshold: 0.6
+  events:
+    fence_zones: []
+
+output:
+  slack:
+    webhook_env: SLACK_WEBHOOK
+    min_severity: warning     # info | warning | critical
+  store:
+    backend: null             # decided alongside ADR-0001

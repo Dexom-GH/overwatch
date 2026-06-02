@@ -1,0 +1,17 @@
+# JETSON TARGET ONLY — do NOT `pip install -r` this on the Windows host; these
+# do not resolve off-device. Installed by scripts/target/ in the correct build
+# order (see docs/SOFTWARE_STACK.md: ZED SDK BEFORE PyTorch).
+#
+# These are mostly NOT plain PyPI installs — they come from the ZED SDK installer
+# and NVIDIA's Jetson wheel index. Listed here for documentation; the scripts do
+# the real install.
+
+# pyzed            -> provided by the ZED SDK installer (10_install_zed_sdk.sh)
+# torch (~2.1)     -> NVIDIA Jetson wheel for JetPack 5.1.x (20_install_pytorch.sh)
+# torchvision      -> matching Jetson wheel
+# tensorrt (8.5)   -> ships with JetPack
+# pyds             -> ships with DeepStream
+
+# Transport client is added here once ADR-0001 closes:
+# redis            (if Redis chosen)
+# pyzmq            (if ZeroMQ chosen)

@@ -1,0 +1,21 @@
+# Target animal classes for V1.
+# class_id values are placeholders — they must match the detector's class map
+# once the detector model is chosen/trained. ID difficulty is a note for the
+# ReID work (rabbits/guinea pigs are hardest — low inter-individual variance).
+
+animals:
+  - class_id: 0
+    name: sheep            # includes ram
+    reid_difficulty: medium
+  - class_id: 1
+    name: goat
+    reid_difficulty: medium
+  - class_id: 2
+    name: poultry
+    reid_difficulty: high
+  - class_id: 3
+    name: rabbit
+    reid_difficulty: very_high
+  - class_id: 4
+    name: guinea_pig
+    reid_difficulty: very_high

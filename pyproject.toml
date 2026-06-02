@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "overwatch"
+version = "0.0.0"
+description = "Edge-AI farm monitoring (animals: counting, vision-only ID, health) on Jetson Xavier NX"
+readme = "README.md"
+# Target is Jetson / Python 3.8 — keep all code 3.8-compatible.
+requires-python = ">=3.8"
+license = { text = "Proprietary" }
+
+# Host-installable runtime deps only. Target-only wheels (pyzed, the Jetson
+# torch wheel, DeepStream bindings) are NOT here — they go in
+# requirements.target.txt and are installed exclusively by scripts/target/.
+dependencies = [
+    "numpy",
+    "pyyaml",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "mypy",
+    "pytest",
+]
+
+[project.scripts]
+overwatch = "overwatch.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py38"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.mypy]
+python_version = "3.8"
+ignore_missing_imports = true   # pyzed / pyds / tensorrt are target-only
+files = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Default host run excludes target-only tests:
+#   pytest -m "not device and not gpu and not zed"

@@ -4,3 +4,30 @@
 # OS / editor cruft
 Thumbs.db
 .DS_Store
+
+# Secrets / local env
+.env
+
+# Model artifacts (rebuilt on device; see models/README.md)
+models/*
+!models/README.md
+*.onnx
+*.engine
+
+# Captured data
+data/
+
+# Local-only benchmark notes (see model-convert-benchmark workflow)
+docs/BENCHMARKS.local.md
+
+# Python build / cache
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
