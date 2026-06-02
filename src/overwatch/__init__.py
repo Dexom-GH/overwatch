@@ -9,4 +9,8 @@ megadescriptor) guard their heavy/target-only imports so importing `overwatch`
 never pulls in pyzed / Jetson torch / DeepStream bindings. See docs/SOFTWARE_STACK.md.
 """
 
+# THE single source of the project version (pyproject reads it via setuptools
+# dynamic attr). Bump here only. Scheme: CalVer YYYY.MINOR.PATCH (e.g. 2026.6.0)
+# once we cut the first release; "0.0.0" means pre-release / no tag yet.
+# See docs/RELEASING.md and docs/DECISIONS/0004-versioning-and-release.md.
 __version__ = "0.0.0"

@@ -1,5 +1,7 @@
 # Overwatch
 
+[![CI](https://github.com/Dexom-GH/overwatch/actions/workflows/ci.yml/badge.svg)](https://github.com/Dexom-GH/overwatch/actions/workflows/ci.yml)
+
 Edge-AI farm monitoring on a Jetson Xavier NX. **V1 focuses on animals**:
 counting, vision-only individual ID, and health (immobility, lameness,
 fence-crossing), with real-time Slack alerts, an event store, and an on-site
@@ -19,16 +21,19 @@ operator dashboard.
 - **[docs/ROADMAP_V1_V2.md](docs/ROADMAP_V1_V2.md)** — what's in V1 vs deferred to
   V2 (and how V2 features get pulled forward).
 - **[docs/DECISIONS/](docs/DECISIONS/)** — open/decided design choices (ADRs).
+- **[docs/RELEASING.md](docs/RELEASING.md)** — CalVer versioning + the gated
+  release/deploy flow. **[CHANGELOG.md](CHANGELOG.md)** tracks changes.
 
 ## Layout
 
 ```
 src/overwatch/   bus/ (the contract) · capture/ · inference/ · fusion/ · output/ · config/
 configs/         runtime config + animal classes
-docs/            architecture, hardware, software stack, roadmap, glossary, ADRs
-scripts/         target/ (Jetson provisioning, ordered) · dev/ (Windows host)
+docs/            architecture, hardware, software stack, roadmap, glossary, releasing, ADRs
+scripts/         target/ (Jetson provisioning, ordered + deploy.sh) · dev/ (Windows host)
 tests/           unit/ (host) · device/ (target, marked)
-.claude/         skills/ · agents/ · workflows/  (project-specific Claude Code tooling)
+.github/         workflows/ (CI + gated release) · ISSUE_TEMPLATE/
+.claude/         skills/ · agents/ · workflows/ · commands/  (project-specific Claude Code tooling)
 ```
 
 ## Host vs target

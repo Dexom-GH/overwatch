@@ -53,12 +53,13 @@ topics are the contract**. → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 src/overwatch/   bus/ (the contract: schemas, topics, base) · capture/ · inference/
                  (deepstream/, reid/, pose) · fusion/ · output/ · config/ · app.py
 configs/         default.yaml, animals.yaml, deepstream/
-docs/            HARDWARE, SOFTWARE_STACK, ARCHITECTURE, ROADMAP_V1_V2, GLOSSARY, GROOMING, DECISIONS/
-scripts/         target/ (Jetson bash, ordered) · dev/ (Windows PowerShell)
+docs/            HARDWARE, SOFTWARE_STACK, ARCHITECTURE, ROADMAP_V1_V2, GLOSSARY, GROOMING, RELEASING, DECISIONS/
+scripts/         target/ (Jetson bash, ordered + deploy.sh) · dev/ (Windows PowerShell)
 models/          gitignored; produced on device
 tests/           unit/ (host) · device/ (target, marked) · conftest.py (markers)
-.github/         ISSUE_TEMPLATE/ (spike, feature-slice, chore — encode Definition of Ready)
-.claude/         skills/ · agents/ · workflows/  (settings.local.json is machine-local)
+CHANGELOG.md     Keep a Changelog; CalVer (see docs/RELEASING.md)
+.github/         workflows/ (ci, gated release) · ISSUE_TEMPLATE/ (encode Definition of Ready)
+.claude/         skills/ · agents/ · workflows/ · commands/  (settings.local.json is machine-local)
 ```
 
 ## Coding conventions
@@ -79,7 +80,8 @@ tests/           unit/ (host) · device/ (target, marked) · conftest.py (marker
 Unresolved design choices are ADRs in [docs/DECISIONS/](docs/DECISIONS/). If you
 make or change one of these decisions, **update the ADR** — don't just change
 code. Currently open: 0001 (Redis vs ZeroMQ), 0003 (on-demand ReID trigger).
-0002 (ZED↔DeepStream) is **Accepted: hybrid** for V1.
+Accepted: 0002 (ZED↔DeepStream) **hybrid** for V1; 0004 **CalVer + gated
+releases** (→ [docs/RELEASING.md](docs/RELEASING.md)).
 
 ## How to work here
 

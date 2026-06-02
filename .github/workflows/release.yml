@@ -1,0 +1,54 @@
+name: Release
+
+# GATED. This workflow is intentionally manual-only (workflow_dispatch) and
+# publishes a DRAFT GitHub Release — nothing goes live without a human clicking
+# "Publish". Tag-triggered auto-release is deliberately NOT enabled yet; enable
+# the `push: tags` trigger below once V1 is shippable (see docs/RELEASING.md,
+# ADR-0004). Deploy-to-Jetson is a separate, manual step (scripts/target/deploy.sh).
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "CalVer version to release, e.g. 2026.6.0 (must equal overwatch.__version__)"
+        required: true
+  # push:
+  #   tags: ["v*"]   # <- enable to auto-release on tag push when ready
+
+permissions:
+  contents: write   # needed to create the (draft) release
+
+jobs:
+  build-and-draft:
+    name: Build + draft release (gated)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Verify input version matches overwatch.__version__
+        run: |
+          PKGVER=$(grep -oE '__version__ = "[^"]+"' src/overwatch/__init__.py | head -1 | cut -d'"' -f2)
+          echo "package version: $PKGVER ; requested: ${{ github.event.inputs.version }}"
+          if [ "$PKGVER" != "${{ github.event.inputs.version }}" ]; then
+            echo "::error::Requested version does not match src/overwatch/__init__.py (__version__=$PKGVER). Bump it first."
+            exit 1
+          fi
+
+      - name: Build sdist + wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+
+      - name: Create DRAFT GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ github.event.inputs.version }}" dist/* \
+            --draft \
+            --generate-notes \
+            --title "v${{ github.event.inputs.version }}"
+          echo "Draft release v${{ github.event.inputs.version }} created — review and Publish manually."

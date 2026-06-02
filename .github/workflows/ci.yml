@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  host-checks:
+    name: Host lint + type + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # CI runs the HOST-runnable checks. Target runtime is Python 3.8, but
+          # 3.8 compatibility is enforced statically by ruff (target-version =
+          # py38); on-device (3.8) behavior is validated by the device-marked
+          # tests on the Jetson, which are excluded here. Running CI on 3.11
+          # mirrors the dev host and keeps modern ruff/mypy happy.
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install package + dev tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+
+      - name: Ruff (lint; enforces 3.8 syntax via target-version)
+        run: ruff check src tests
+
+      - name: Mypy
+        run: mypy src
+
+      - name: Pytest (host only; device/gpu/zed excluded)
+        run: pytest -m "not device and not gpu and not zed"
