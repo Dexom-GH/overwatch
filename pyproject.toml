@@ -38,7 +38,9 @@ line-length = 100
 src = ["src", "tests"]
 
 [tool.mypy]
-python_version = "3.8"
+# NOTE: the 3.8 *syntax* gate is ruff (target-version = "py38"). Modern mypy on
+# the host (Python 3.12) refuses python_version < 3.10, so we don't pin it here;
+# mypy uses the running interpreter. On-device (Python 3.8) mypy targets 3.8.
 ignore_missing_imports = true   # pyzed / pyds / tensorrt are target-only
 files = ["src"]
 

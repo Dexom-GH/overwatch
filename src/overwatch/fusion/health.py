@@ -10,7 +10,7 @@ This is host-runnable, plain-Python logic — prime unit-test territory.
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Optional
 
 from overwatch.bus.schemas import DepthBBox, HealthSignal, Pose
 
