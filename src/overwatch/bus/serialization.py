@@ -16,7 +16,9 @@ The field-tree uses three self-describing sentinels so round-trips are exact:
 
 Typed/explicit (not pickle) for cross-numpy-version stability, schema-evolution
 tolerance, and introspectability. Reserved sentinel keys (``__ndarray__``,
-``__type__``, ``__tuple__``) must not appear as keys in a ``detail`` dict. See
+``__type__``, ``__tuple__``) must not appear as keys in a ``detail`` dict.
+Decoded numpy arrays are read-only views over the received buffer (zero-copy);
+a consumer that must mutate one should ``.copy()`` it first. See
 docs/superpowers/specs/2026-06-02-bus-serialization-design.md and ADR-0001.
 """
 
@@ -45,6 +47,7 @@ def _build_registry() -> Dict[str, type]:
 
 
 _REGISTRY = _build_registry()  # type: Dict[str, type]
+_RESERVED_KEYS = frozenset({"__ndarray__", "__type__", "__tuple__"})
 
 
 def _encode_value(value: Any, buffers: List[bytes]) -> Any:
@@ -66,6 +69,14 @@ def _encode_value(value: Any, buffers: List[bytes]) -> Any:
     if isinstance(value, list):
         return [_encode_value(v, buffers) for v in value]
     if isinstance(value, dict):
+        for key in value:
+            if key in _RESERVED_KEYS:
+                raise SerializationError(
+                    "dict key {!r} collides with a reserved sentinel; payload "
+                    "dicts (e.g. detail) must not use {}".format(
+                        key, sorted(_RESERVED_KEYS)
+                    )
+                )
         return {k: _encode_value(v, buffers) for k, v in value.items()}
     return value
 
@@ -102,23 +113,37 @@ def encode(message: Any) -> List[bytes]:
     return [header_bytes] + buffers
 
 
+def _decode_ndarray(descriptor: Any, buffers: List[bytes]) -> Any:
+    try:
+        index = descriptor["buf"]
+        dtype = descriptor["dtype"]
+        shape = descriptor["shape"]
+    except (KeyError, TypeError) as exc:
+        raise SerializationError("malformed __ndarray__ descriptor: {}".format(exc))
+    if not isinstance(index, int) or index < 0 or index >= len(buffers):
+        raise SerializationError("array buffer index {!r} out of range".format(index))
+    try:
+        array = np.frombuffer(buffers[index], dtype=dtype)
+        return array.reshape(shape)
+    except (TypeError, ValueError) as exc:
+        raise SerializationError("cannot decode array: {}".format(exc))
+
+
 def _decode_value(value: Any, buffers: List[bytes]) -> Any:
     if isinstance(value, dict):
         if "__ndarray__" in value:
-            descriptor = value["__ndarray__"]
-            index = descriptor["buf"]
-            if index < 0 or index >= len(buffers):
-                raise SerializationError(
-                    "array buffer index {} out of range".format(index)
-                )
-            array = np.frombuffer(buffers[index], dtype=descriptor["dtype"])
-            return array.reshape(descriptor["shape"])
+            return _decode_ndarray(value["__ndarray__"], buffers)
         if "__type__" in value:
             name = value["__type__"]
             if name not in _REGISTRY:
                 raise SerializationError("unknown nested schema type: {!r}".format(name))
-            fields = _decode_tree(value["tree"], buffers)
-            return _REGISTRY[name](**fields)
+            fields = _decode_tree(value.get("tree", {}), buffers)
+            try:
+                return _REGISTRY[name](**fields)
+            except TypeError as exc:
+                raise SerializationError(
+                    "cannot construct nested {}: {}".format(name, exc)
+                )
         if "__tuple__" in value:
             return tuple(_decode_value(v, buffers) for v in value["__tuple__"])
         return {k: _decode_value(v, buffers) for k, v in value.items()}
