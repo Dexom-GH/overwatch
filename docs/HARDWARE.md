@@ -39,11 +39,18 @@ body-size-based ID, and lameness scoring. Preserving per-object depth through a
 2D-bbox-centric DeepStream pipeline is an open integration concern — see
 [DECISIONS/0002-zed-deepstream-integration.md](DECISIONS/0002-zed-deepstream-integration.md).
 
+## Cameras (provisioned for V1)
+
+- **3-4 Ethernet / IP (RTSP, mono) cameras — provisioned for V1** as of
+  2026-06-02 (`v2-fwd`), alongside the ZED 2i. Non-stereo: no depth, so
+  depth-dependent features (count de-dup, body-size ID, lameness) run **ZED-only**;
+  mono feeds get 2D counting, immobility, fence-crossing. See the canonical
+  capability matrix in
+  [DECISIONS/0006-multi-camera-capture-split.md](DECISIONS/0006-multi-camera-capture-split.md)
+  and [ROADMAP_V1_V2.md](ROADMAP_V1_V2.md).
+
 ## Deferred sensors
 
-- **2 × Ethernet / IP cameras** — planned, **deferred past V1**. The capture
-  layer interface should not assume a single source, but no IP-camera code is
-  built in V1.
 - **RFID collar tags** — planned for individual ID, **not in V1**. V1 ID is
   vision-only. See [ROADMAP_V1_V2.md](ROADMAP_V1_V2.md).
 
