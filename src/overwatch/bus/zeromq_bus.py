@@ -10,7 +10,10 @@ unit tests — no import guard needed (unlike pyzed/torch).
 Lifecycle: register all ``subscribe()`` handlers BEFORE ``start()``. The SUB
 socket is owned exclusively by the dispatch thread; subscriptions are not mutated
 cross-thread in V1. ``start()`` settles briefly to cover the PUB/SUB slow-joiner
-so the first ``publish()`` is delivered.
+so the first ``publish()`` is delivered. ``publish()`` sends on the shared PUB socket from the caller's thread; ZeroMQ
+sockets are not thread-safe, so in V1's single-process design publish from a
+single producer thread per process (guard with a lock if producers are ever
+fanned out).
 
 Out of scope here (separate issues): HWM/CONFLATE backpressure policy (#39 — wire
 it via the ``socket_options`` seam); a tcp + XPUB/XSUB topology for cross-process
@@ -108,10 +111,17 @@ class ZeroMqBus(MessageBus):
         poller.register(sub, zmq.POLLIN)
         self._ready.set()
         while not self._stop.is_set():
-            events = dict(poller.poll(timeout=100))
-            if sub in events:
-                frames = sub.recv_multipart()
-                self._dispatch(frames)
+            try:
+                events = dict(poller.poll(timeout=100))
+                if sub in events:
+                    frames = sub.recv_multipart()
+                    self._dispatch(frames)
+            except zmq.ZMQError:
+                # Transport-level error: break cleanly if we're shutting down
+                # (e.g. ETERM), otherwise log and keep the dispatch loop alive.
+                if self._stop.is_set():
+                    break
+                _LOG.exception("ZeroMQ error in dispatch loop")
 
     def _dispatch(self, frames: List[bytes]) -> None:
         if not frames:

@@ -78,3 +78,24 @@ def test_publish_before_start_raises():
             topics.FUSION_COUNT,
             schemas.ZoneCount(zone_id="z1", timestamp=1.0, count=1),
         )
+
+
+def test_close_without_start_is_safe():
+    bus = ZeroMqBus()
+    bus.close()  # no start() — must be a safe no-op
+
+
+def test_close_is_idempotent():
+    bus = ZeroMqBus()
+    bus.start()
+    bus.close()
+    bus.close()  # second close must be a no-op
+
+
+def test_double_start_is_noop():
+    bus = ZeroMqBus()
+    bus.start()
+    try:
+        bus.start()  # second start returns early; no error, no second thread
+    finally:
+        bus.close()
