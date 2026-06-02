@@ -4,9 +4,7 @@
 # the detailed procedure and TRT 8.5 friction notes.
 set -euo pipefail
 
-echo "== Overwatch: convert MegaDescriptor -> TensorRT FP16 =="
-
-OUT="models/megadescriptor_t224_fp16.engine"
+echo "== Overwatch: convert MegaDescriptor -> TensorRT =="
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 WORK="${WORK:-$PWD}"                       # run from a writable work dir
