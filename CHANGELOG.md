@@ -21,5 +21,10 @@ All notable changes to Overwatch are recorded here. Format follows
 - Release infrastructure (gated): CI workflow (host lint/type/tests), manual
   draft-release workflow, CalVer single-sourced version, gated on-device deploy
   script.
+- Bus message (de)serialization (#10): a typed codec (`bus/serialization.py`,
+  JSON header + raw numpy frames) and a working `ZeroMqBus` (inproc PUB/SUB) so
+  every `schemas.*` dataclass round-trips over the ZeroMQ ephemeral tier
+  (ADR-0001). `pyzmq` added as a host-runnable dependency; dev `bus_tap.py`
+  prints decoded typed messages.
 
 [Unreleased]: https://github.com/Dexom-GH/overwatch/commits/master
