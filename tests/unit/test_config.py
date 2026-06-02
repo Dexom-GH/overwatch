@@ -1,0 +1,213 @@
+"""Host tests for config schema + validation (issue #2).
+
+Covers: valid load, fail-fast validation errors, env-var layering with the
+``*_env`` secret indirection, the ADR-0001 conditional bus rule, and must-tune
+flagging. All host-runnable (no device/gpu/zed markers).
+"""
+
+import logging
+
+import pytest
+
+from overwatch.config import AppConfig, ConfigError, load_config
+from overwatch.config.schema import validate_config
+
+
+def _valid_data():
+    """A minimal config dict that satisfies the schema."""
+    return {
+        "bus": {"transport": "zeromq", "endpoint": "ipc:///tmp/ow-bus", "url_env": None},
+        "capture": {"source": "zed", "source_id": "zed-0", "fps": 15},
+        "inference": {
+            "detector_config": "detector.txt",
+            "tracker_config": "tracker.txt",
+            "reid": {
+                "engine": "model.engine",
+                "refresh_seconds": 30,
+                "min_crop_confidence": 0.5,
+            },
+        },
+        "fusion": {
+            "zones": [],
+            "health": {"immobility_seconds": 600, "lameness_score_threshold": 0.6},
+            "events": {"fence_zones": []},
+        },
+        "output": {
+            "slack": {"webhook_env": "SLACK_WEBHOOK", "min_severity": "warning"},
+            "store": {"backend": "sqlite", "path": "data/ow.db"},
+        },
+    }
+
+
+# --- schema validation -----------------------------------------------------
+
+def test_validate_accepts_minimal_valid():
+    cfg = validate_config(_valid_data())
+    assert isinstance(cfg, AppConfig)
+    assert cfg.bus.transport == "zeromq"
+    assert cfg.capture.fps == 15
+    assert cfg.output.store.backend == "sqlite"
+
+
+def test_rejects_unknown_transport():
+    data = _valid_data()
+    data["bus"]["transport"] = "kafka"
+    with pytest.raises(ConfigError) as exc:
+        validate_config(data)
+    assert "transport" in str(exc.value)
+
+
+def test_rejects_fps_zero():
+    data = _valid_data()
+    data["capture"]["fps"] = 0
+    with pytest.raises(ConfigError):
+        validate_config(data)
+
+
+def test_rejects_out_of_range_confidence():
+    data = _valid_data()
+    data["inference"]["reid"]["min_crop_confidence"] = 1.5
+    with pytest.raises(ConfigError):
+        validate_config(data)
+
+
+def test_rejects_missing_required_section():
+    data = _valid_data()
+    del data["capture"]
+    with pytest.raises(ConfigError):
+        validate_config(data)
+
+
+def test_rejects_unknown_key():
+    data = _valid_data()
+    data["capture"]["frame_rate"] = 30  # typo of fps; must fail fast
+    with pytest.raises(ConfigError) as exc:
+        validate_config(data)
+    assert "frame_rate" in str(exc.value)
+
+
+def test_error_message_aggregates_field_path():
+    data = _valid_data()
+    data["capture"]["fps"] = -1
+    data["bus"]["transport"] = "kafka"
+    with pytest.raises(ConfigError) as exc:
+        validate_config(data)
+    msg = str(exc.value)
+    assert "capture" in msg and "fps" in msg
+    assert "bus" in msg and "transport" in msg
+
+
+# --- ADR-0001 conditional bus / store rule ---------------------------------
+
+def test_zeromq_requires_endpoint():
+    data = _valid_data()
+    data["bus"] = {"transport": "zeromq", "endpoint": None, "url_env": None}
+    with pytest.raises(ConfigError) as exc:
+        validate_config(data)
+    assert "endpoint" in str(exc.value)
+
+
+def test_redis_requires_url_env():
+    data = _valid_data()
+    data["bus"] = {"transport": "redis", "endpoint": None, "url_env": None}
+    with pytest.raises(ConfigError) as exc:
+        validate_config(data)
+    assert "url_env" in str(exc.value)
+
+
+def test_sqlite_store_requires_path():
+    data = _valid_data()
+    data["output"]["store"] = {"backend": "sqlite", "path": None}
+    with pytest.raises(ConfigError) as exc:
+        validate_config(data)
+    assert "path" in str(exc.value)
+
+
+# --- must-tune flagging ----------------------------------------------------
+
+def test_must_tune_fields_lists_expected_paths():
+    cfg = validate_config(_valid_data())
+    paths = cfg.must_tune_fields()
+    assert "capture.fps" in paths
+    assert "fusion.health.immobility_seconds" in paths
+    assert "inference.reid.min_crop_confidence" in paths
+
+
+# --- loader: layering + env ------------------------------------------------
+
+def test_load_default_config_returns_appconfig():
+    cfg = load_config()
+    assert isinstance(cfg, AppConfig)
+    # default.yaml reflects ADR-0001 (hybrid: zeromq + sqlite)
+    assert cfg.bus.transport == "zeromq"
+    assert cfg.output.store.backend == "sqlite"
+
+
+def test_override_file_wins(tmp_path, monkeypatch):
+    monkeypatch.setenv("OVERWATCH_CONFIG_DIR", str(tmp_path))
+    (tmp_path / "default.yaml").write_text(_yaml(_valid_data()))
+    override = tmp_path / "override.yaml"
+    override.write_text("capture:\n  fps: 30\n")
+    cfg = load_config(str(override))
+    assert cfg.capture.fps == 30
+
+
+def test_env_overrides_source_id(tmp_path, monkeypatch):
+    monkeypatch.setenv("OVERWATCH_CONFIG_DIR", str(tmp_path))
+    (tmp_path / "default.yaml").write_text(_yaml(_valid_data()))
+    monkeypatch.setenv("ZED_SOURCE_ID", "zed-override")
+    cfg = load_config()
+    assert cfg.capture.source_id == "zed-override"
+
+
+def test_slack_webhook_resolved_from_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("OVERWATCH_CONFIG_DIR", str(tmp_path))
+    (tmp_path / "default.yaml").write_text(_yaml(_valid_data()))
+    monkeypatch.setenv("SLACK_WEBHOOK", "https://hooks.example/abc")
+    cfg = load_config()
+    assert cfg.output.slack.webhook == "https://hooks.example/abc"
+
+
+def test_slack_webhook_none_when_env_unset(tmp_path, monkeypatch):
+    monkeypatch.setenv("OVERWATCH_CONFIG_DIR", str(tmp_path))
+    (tmp_path / "default.yaml").write_text(_yaml(_valid_data()))
+    monkeypatch.delenv("SLACK_WEBHOOK", raising=False)
+    cfg = load_config()
+    assert cfg.output.slack.webhook is None
+
+
+def test_env_unset_does_not_clobber_yaml_webhook(tmp_path, monkeypatch):
+    # An operator who sets webhook directly in YAML must not have it wiped to None
+    # just because the SLACK_WEBHOOK env var is absent.
+    monkeypatch.setenv("OVERWATCH_CONFIG_DIR", str(tmp_path))
+    (tmp_path / "default.yaml").write_text(_yaml(_valid_data()))
+    override = tmp_path / "override.yaml"
+    override.write_text("output:\n  slack:\n    webhook: https://hooks.example/in-yaml\n")
+    monkeypatch.delenv("SLACK_WEBHOOK", raising=False)
+    cfg = load_config(str(override))
+    assert cfg.output.slack.webhook == "https://hooks.example/in-yaml"
+
+
+def test_nonstring_webhook_env_raises_configerror(tmp_path, monkeypatch):
+    # A YAML typo (webhook_env as a non-string) must surface as a clean ConfigError,
+    # not a raw TypeError from os.environ.get during the env overlay.
+    monkeypatch.setenv("OVERWATCH_CONFIG_DIR", str(tmp_path))
+    data = _valid_data()
+    data["output"]["slack"]["webhook_env"] = 123
+    (tmp_path / "default.yaml").write_text(_yaml(data))
+    with pytest.raises(ConfigError):
+        load_config()
+
+
+def test_load_emits_must_tune_warning(tmp_path, monkeypatch, caplog):
+    monkeypatch.setenv("OVERWATCH_CONFIG_DIR", str(tmp_path))
+    (tmp_path / "default.yaml").write_text(_yaml(_valid_data()))
+    with caplog.at_level(logging.WARNING):
+        load_config()
+    assert any("must-tune" in r.getMessage().lower() for r in caplog.records)
+
+
+def _yaml(data):
+    import yaml
+
+    return yaml.safe_dump(data)

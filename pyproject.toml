@@ -20,6 +20,7 @@ license = { text = "Proprietary" }
 dependencies = [
     "numpy",
     "pyyaml",
+    "pydantic>=2",
 ]
 
 [project.optional-dependencies]

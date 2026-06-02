@@ -8,3 +8,4 @@ pytest
 # Host-runnable runtime deps (mirror pyproject [project].dependencies)
 numpy
 pyyaml
+pydantic>=2
