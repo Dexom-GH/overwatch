@@ -4,9 +4,12 @@
 # Values below are placeholders to be tuned on-device.
 
 bus:
-  # transport is undecided — ADR-0001 (redis | zeromq). Left unset on purpose.
-  transport: null
-  url_env: REDIS_URL          # env var consulted for the transport URL
+  # ADR-0001 (accepted, hybrid): ZeroMQ for the high-rate ephemeral tier.
+  transport: zeromq
+  endpoint: ipc:///tmp/overwatch-bus   # ZeroMQ endpoint (not a secret)
+  # Redis fallback path only: transport: redis + url_env: REDIS_URL (URL is a
+  # secret resolved from that env var). Leave url_env null for ZeroMQ.
+  url_env: null
 
 capture:
   source: zed                 # zed | (ip cameras deferred)
@@ -35,4 +38,6 @@ output:
     webhook_env: SLACK_WEBHOOK
     min_severity: warning     # info | warning | critical
   store:
-    backend: null             # decided alongside ADR-0001
+    # ADR-0001 (accepted, hybrid): SQLite EventStore for the durable tier.
+    backend: sqlite
+    path: data/overwatch.db   # event store db (dir created on-device)
