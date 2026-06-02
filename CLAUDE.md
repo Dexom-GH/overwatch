@@ -53,10 +53,11 @@ topics are the contract**. → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 src/overwatch/   bus/ (the contract: schemas, topics, base) · capture/ · inference/
                  (deepstream/, reid/, pose) · fusion/ · output/ · config/ · app.py
 configs/         default.yaml, animals.yaml, deepstream/
-docs/            HARDWARE, SOFTWARE_STACK, ARCHITECTURE, ROADMAP_V1_V2, GLOSSARY, DECISIONS/
+docs/            HARDWARE, SOFTWARE_STACK, ARCHITECTURE, ROADMAP_V1_V2, GLOSSARY, GROOMING, DECISIONS/
 scripts/         target/ (Jetson bash, ordered) · dev/ (Windows PowerShell)
 models/          gitignored; produced on device
 tests/           unit/ (host) · device/ (target, marked) · conftest.py (markers)
+.github/         ISSUE_TEMPLATE/ (spike, feature-slice, chore — encode Definition of Ready)
 .claude/         skills/ · agents/ · workflows/  (settings.local.json is machine-local)
 ```
 
@@ -82,6 +83,11 @@ code. Currently open: 0001 (Redis vs ZeroMQ), 0003 (on-demand ReID trigger).
 
 ## How to work here
 
+- **Groom before you build.** Before implementing a feature, dispatch the
+  **`product-owner`** agent to shape and vet the work — vertical slices,
+  de-risking spikes, acceptance criteria, V1/V2 gatekeeping. The backlog lives in
+  GitHub Issues (`Dexom-GH/overwatch`); only `status:ready` items get
+  implemented. → [docs/GROOMING.md](docs/GROOMING.md)
 - **Skills** (`.claude/skills/`): `bus-stage-conventions` (add a pipeline stage),
   `jetson-env-setup` (provision the device in build order), `trt-model-conversion`
   (Swin→TRT FP16), `deepstream-pipeline` (build/probe the GStreamer pipeline).
@@ -89,5 +95,5 @@ code. Currently open: 0001 (Redis vs ZeroMQ), 0003 (on-demand ReID trigger).
 - **Workflows** (`.claude/workflows/`): `env-verification-sweep`,
   `model-convert-benchmark`, `cross-component-review`, `adr-fanout` — run these
   via the Workflow tool when the user opts into orchestration.
-- **Subagents**: built-in Explore / Plan / general-purpose suffice for now. No
-  custom project agents yet — see [.claude/agents/README.md](.claude/agents/README.md).
+- **Subagents** (`.claude/agents/`): `product-owner` (grooming/vetting, above);
+  built-in Explore / Plan / general-purpose otherwise. → [.claude/agents/README.md](.claude/agents/README.md)

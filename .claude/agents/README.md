@@ -1,10 +1,19 @@
 # Project subagents
 
-**None yet — and that's deliberate.** The built-in agents (Explore, Plan,
-general-purpose) cover scaffolding and early implementation. A custom subagent
-earns its place only when there is a *recurring, specialized task* with a
-distinct tool/permission profile or system prompt that the built-ins handle
-poorly.
+A custom subagent earns its place only when there is a *recurring, specialized
+task* with a distinct tool/permission profile or system prompt that the
+built-ins (Explore, Plan, general-purpose) handle poorly.
+
+## Active agents
+
+- **`product-owner`** (`product-owner.md`) — the backlog groomer / PO lens. Run
+  it **before implementing any feature**: it decomposes V1 into vertical demoable
+  slices, front-loads de-risking spikes, writes and vets work items against the
+  Definition of Ready/Done, gatekeeps the porous V1/V2 boundary, prioritizes, and
+  manages the backlog as GitHub Issues on `Dexom-GH/overwatch`. It does **not**
+  write implementation code. Earns its place because grooming/vetting is a
+  recurring task with a distinct lens (scope, acceptance criteria, risk) and a
+  distinct tool surface (gh/issues, docs — not source). See `docs/GROOMING.md`.
 
 ## The bar for adding one
 

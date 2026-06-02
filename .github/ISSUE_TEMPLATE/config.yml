@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Grooming & vetting process
+    url: https://github.com/Dexom-GH/overwatch/blob/master/docs/GROOMING.md
+    about: How work is shaped, vetted (Definition of Ready/Done), and labeled before implementation.
+  - name: V1 / V2 scope
+    url: https://github.com/Dexom-GH/overwatch/blob/master/docs/ROADMAP_V1_V2.md
+    about: What's in V1 vs deferred to V2, and the porous-boundary convention.
