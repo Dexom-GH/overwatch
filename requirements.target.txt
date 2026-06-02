@@ -19,7 +19,7 @@
 pyyaml
 pydantic>=2
 
-# Transport client (ADR-0001 closed -> hybrid: ZeroMQ ephemeral tier). The actual
-# install + bus impl lands with issue #10:
-# pyzmq            (ZeroMQ — chosen)
+# Transport client (ADR-0001 closed -> hybrid: ZeroMQ ephemeral tier). Plain PyPI
+# install (aarch64 / Python 3.8 wheels exist; the bus impl is issue #10).
+pyzmq
 # redis            (only if the on-device benchmark flips ADR-0001 back to Redis)

@@ -21,6 +21,7 @@ dependencies = [
     "numpy",
     "pyyaml",
     "pydantic>=2",
+    "pyzmq",
 ]
 
 [project.optional-dependencies]

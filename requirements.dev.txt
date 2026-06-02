@@ -9,3 +9,4 @@ pytest
 numpy
 pyyaml
 pydantic>=2
+pyzmq
