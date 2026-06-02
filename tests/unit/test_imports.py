@@ -16,6 +16,7 @@ HOST_SAFE_MODULES = [
     "overwatch.bus.base",
     "overwatch.bus.topics",
     "overwatch.bus.schemas",
+    "overwatch.bus.serialization",
     "overwatch.bus.redis_bus",
     "overwatch.bus.zeromq_bus",
     "overwatch.capture",
