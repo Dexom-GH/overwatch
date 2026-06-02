@@ -29,8 +29,19 @@ forward a documented move rather than a silent one.
 | **Gallery enrollment + matching** | V1 produces embeddings but has nothing to match against. Manual enrollment is a V2 task. `reid/gallery.py` is a stub. **See the forward-port note below (2026-06-02): a minimal manual gallery is pulled forward as an OPTIONAL `v2-fwd` slice, tracked in issue #21.** |
 | **RFID collar tags** | Hardware/ID approach deferred; V1 ID is vision-only. |
 | **Plant & environmental monitoring** | The broader farm-overwatch scope; V1 is animals only. |
+| **Lameness scoring (depth + pose)** | Deferred to V2 (2026-06-02): heaviest health signal, placeholder thresholds, needs pose-model provenance. V1 health = immobility + fence-crossing. Tracked in issue #22. |
 
 ### Forward-port notes
+
+- **2026-06-02 — Lameness scoring DEFERRED V1→V2 (reverse of a forward-port):**
+  Lameness scoring (depth + pose) is pulled **out** of V1 and parked in V2. It is
+  the heaviest health signal, currently carries only placeholder thresholds, and
+  depends on a pose model (`pose.py`) whose provenance/licensing is unresolved —
+  that provenance concern moves to V2 with it. V1 health therefore narrows to
+  **immobility (#19) + fence-crossing (#20)**. The deferred-item row above is the
+  honest boundary record; tracked in **issue #22** (relabeled `v2`, removed from
+  the V1 milestone, kept open as a V2 backlog item). This is the reverse of the
+  `# V2→V1:` convention — a documented V1→V2 move, not a silent scope cut.
 
 - **2026-06-02 — Multi-camera capture (3-4 mono RTSP/IP, `v2-fwd`, P1):** IP/RTSP
   cameras are pulled forward so V1 covers a multi-pen / multi-angle farm: **3-4

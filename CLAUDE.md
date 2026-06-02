@@ -1,8 +1,8 @@
 # Overwatch — AI Farm Overwatch System
 
 Edge-AI app on a Jetson Xavier NX monitoring a farm. **V1 = animal monitoring**:
-counting, vision-only individual ID, and health (immobility, lameness,
-fence-crossing). Outputs are real-time **Slack alerts**, a logging/event store,
+counting, vision-only individual ID, and health (immobility, fence-crossing;
+lameness deferred to V2). Outputs are real-time **Slack alerts**, a logging/event store,
 and an on-site **operator dashboard**. The broader scope (plants, environment)
 is later.
 
