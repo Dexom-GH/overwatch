@@ -39,6 +39,7 @@ HOST_SAFE_MODULES = [
     "overwatch.fusion.events",
     "overwatch.output",
     "overwatch.output.slack",
+    "overwatch.output.throttle",             # shared alert de-dup / rate-limit (#42)
     "overwatch.output.store",
     "overwatch.config",
     "overwatch.config.loader",

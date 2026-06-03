@@ -97,6 +97,39 @@ def test_error_message_aggregates_field_path():
     assert "bus" in msg and "transport" in msg
 
 
+# --- output alert throttle (#42) -------------------------------------------
+
+def test_output_throttle_defaults_when_omitted():
+    cfg = validate_config(_valid_data())
+    assert cfg.output.throttle.cooldown_seconds == 60.0
+    assert cfg.output.throttle.max_per_window is None
+    assert cfg.output.throttle.rate_window_seconds == 60.0
+
+
+def test_output_throttle_overrides_validate():
+    data = _valid_data()
+    data["output"]["throttle"] = {
+        "cooldown_seconds": 30.0, "max_per_window": 5, "rate_window_seconds": 120.0
+    }
+    cfg = validate_config(data)
+    assert cfg.output.throttle.cooldown_seconds == 30.0
+    assert cfg.output.throttle.max_per_window == 5
+
+
+def test_rejects_negative_cooldown():
+    data = _valid_data()
+    data["output"]["throttle"] = {"cooldown_seconds": -1.0}
+    with pytest.raises(ConfigError):
+        validate_config(data)
+
+
+def test_rejects_zero_rate_window():
+    data = _valid_data()
+    data["output"]["throttle"] = {"rate_window_seconds": 0.0}
+    with pytest.raises(ConfigError):
+        validate_config(data)
+
+
 # --- ADR-0001 conditional bus / store rule ---------------------------------
 
 def test_zeromq_requires_endpoint():

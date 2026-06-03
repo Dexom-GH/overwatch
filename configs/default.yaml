@@ -41,3 +41,8 @@ output:
     # ADR-0001 (accepted, hybrid): SQLite EventStore for the durable tier.
     backend: sqlite
     path: data/overwatch.db   # event store db (dir created on-device)
+  throttle:
+    # Shared alert de-dup / rate-limit (#42). De-dup key = (event_type, zone_id|track_id).
+    cooldown_seconds: 60      # collapse identical alerts within this window (0 disables)
+    max_per_window: null      # global burst cap per rate window (null = unlimited)
+    rate_window_seconds: 60   # window for the burst cap
