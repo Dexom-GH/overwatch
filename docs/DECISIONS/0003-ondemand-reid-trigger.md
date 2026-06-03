@@ -47,3 +47,24 @@ pipeline.
 - Note: V1 has **no gallery** to match embeddings against — the trigger produces
   embeddings that are stored/logged but not yet matched. Matching is V2
   ([ROADMAP_V1_V2.md](../ROADMAP_V1_V2.md)).
+
+## Conversion findings (#7 — 2026-06-02)
+
+An on-device spike (Xavier NX, TRT 8.5.2) validated the Swin→TRT conversion this
+trigger depends on. Two findings refine the "FP16 TensorRT" assumption in the
+Context above:
+
+- The engine builds and runs: MegaDescriptor-T-224 → 768-dim embedding. Latency
+  per crop on Xavier NX (DVFS, unpinned): `MODE_15W_4CORE` ~27.7 ms FP32 /
+  ~10.3 ms FP16; `MODE_10W_4CORE` ~40.6 ms / ~16.7 ms. p99 spikes are over-current
+  throttle (see docs/HARDWARE.md). On-demand dispatch (off-thread) easily
+  tolerates these.
+- **FP16 is not safe out-of-the-box.** Pure-FP16 cosine vs FP32 is ~0.13 (Swin
+  overflows FP16); the FP32 engine is exact (1.00). **V1 should ship the FP32
+  engine**; recovering FP16 speed needs mixed precision (FP32 fallback on
+  overflow-prone layers) — tracked with the ReID slice (#17).
+- Export must use **ONNX opset 16** (opset 17's fused `LayerNormalization` is
+  unparseable by TRT 8.5). See the `trt-model-conversion` skill.
+
+This does not change the trigger decision (probe vs out-of-band) — still pending
+the dispatch-stall benchmark — but it updates the engine assumptions feeding it.
