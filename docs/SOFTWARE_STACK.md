@@ -21,6 +21,17 @@ gotchas and points here.
 | ZED SDK | matching JetPack 5.1.x | Provides `pyzed` (Python 3.8 wheel). **Install FIRST.** |
 | `pyzed` | Python 3.8 wheel from the ZED SDK | **Not installable on the Windows dev host.** Target-only. |
 
+### Pinned install artifacts
+
+- **PyTorch (Jetson wheel):** `torch-2.1.0a0+41361538.nv23.06-cp38-cp38-linux_aarch64.whl`
+  + `torchvision-0.16.2+c6f3977-cp38-cp38-linux_aarch64.whl` (JetPack 5.1.x / cp38).
+  Source: NVIDIA "PyTorch for Jetson"; mirrored on the Ultralytics assets GitHub
+  release. Installed by `scripts/target/20_install_pytorch.sh`.
+- **ZED SDK:** a 4.x build matching L4T 35.6 (`ZED_SDK_Tegra_L4T35.x_vY.Y.Y.zstd.run`)
+  from the Stereolabs release page; silent install via `scripts/target/10_install_zed_sdk.sh`.
+- **pip:** not preinstalled on this L4T's system python3; bootstrap with the py3.8
+  `get-pip.py` (`--user`). See `docs/runbooks/jetson-provisioning.md`.
+
 ## Build order (this order is load-bearing)
 
 ```
