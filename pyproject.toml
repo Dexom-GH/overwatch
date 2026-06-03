@@ -22,6 +22,7 @@ dependencies = [
     "pyyaml",
     "pydantic>=2",
     "pyzmq",
+    "python-dotenv",
 ]
 
 [project.optional-dependencies]

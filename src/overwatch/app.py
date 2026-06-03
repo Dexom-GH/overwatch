@@ -122,10 +122,11 @@ def run_pipeline(
 
 def main(config_path: "Optional[str]" = None) -> None:  # pragma: no cover - target-only
     """Construct the pipeline from config and run it until signalled. TARGET-ONLY."""
-    from overwatch.config.loader import load_config
+    from overwatch.config.loader import load_config, validate_secrets
 
     logging.basicConfig(level=logging.INFO)
     cfg = load_config(config_path)
+    validate_secrets(cfg)  # fail loudly on a missing required secret before starting (#41)
     supervisor = build_supervisor(cfg)
     _LOG.info("starting overwatch pipeline (bus=%s)", cfg.bus.transport)
     run_pipeline(supervisor)
