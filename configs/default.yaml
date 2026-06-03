@@ -14,7 +14,7 @@ bus:
 capture:
   source: zed                 # zed | (ip cameras deferred)
   source_id: zed-0
-  fps: 15                     # placeholder; confirm on-device
+  fps: 15                     # V1 committed default; sustained target, confirm on-device vs power mode (#46)
 
 inference:
   detector_config: src/overwatch/inference/deepstream/configs/nvinfer_detector.txt

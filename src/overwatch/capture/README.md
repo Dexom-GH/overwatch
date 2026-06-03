@@ -3,7 +3,22 @@
 Produces synchronized RGB + depth from the sensor and publishes to the bus.
 
 - `base.py` — `CaptureSource` ABC (multi-source-capable; depth optional).
-- `zed_source.py` — V1 ZED 2i source. **Target-only** (`pyzed`); import-guarded.
+- `zed_source.py` — V1 ZED 2i source (`grab()` → RGB + metric depth, shared
+  `frame_id`/`timestamp`). **Target-only** (`pyzed`); import-guarded.
+- `service.py` — the capture spine: `run_capture(source, bus)` republishes any
+  `CaptureSource` stream onto `capture.frame` / `capture.depth`. Driver + the
+  `FpsMeter`/`FrameLogger` helpers are host-runnable and unit-tested; the
+  `python -m overwatch.capture.service` demo (live `ZedSource` → bus → a
+  subscriber printing id/shape/FPS) is target-only.
+
+## Capture spine (#14)
+
+`service.run_capture` is transport-agnostic (depends only on the `MessageBus`
+ABC and a `CaptureSource`), so it drives the live `ZedSource` on the Jetson and a
+`ReplaySource` off-device identically. RGB and depth come from one ZED `grab()`,
+so they share `frame_id` and `timestamp` exactly — the driver publishes the pair
+without re-timing it. On-device verification (live FPS, the subscriber demo) is
+gated on the ZED enumerating over USB-3 (#54).
 
 ## The ZED ↔ DeepStream seam (ADR-0002)
 
