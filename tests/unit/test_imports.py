@@ -43,7 +43,10 @@ HOST_SAFE_MODULES = [
     "overwatch.output.slack",
     "overwatch.output.throttle",             # shared alert de-dup / rate-limit (#42)
     "overwatch.output.store",
+    "overwatch.output.sqlite_store",         # SQLite EventStore durable tier (#18)
     "overwatch.output.retention",            # data-retention / rotation policy (#40)
+    "overwatch.output.dashboard",            # read-only operator dashboard view (#18)
+    "overwatch.output.dashboard.view",
     "overwatch.config",
     "overwatch.config.loader",
     "overwatch.observability",               # metrics + structured logging (#13)
