@@ -43,11 +43,9 @@ from overwatch.capture.base import CaptureSource
 try:
     import cv2  # type: ignore
 
-    _CV2_AVAILABLE = True
     _CV2_IMPORT_ERROR: Optional[Exception] = None
-except Exception as exc:  # pragma: no cover - host path with opencv installed
+except Exception as exc:  # pragma: no cover - opencv absent
     cv2 = None  # type: ignore
-    _CV2_AVAILABLE = False
     _CV2_IMPORT_ERROR = exc
 
 _LOG = logging.getLogger(__name__)
@@ -186,7 +184,7 @@ class RtspSource(CaptureSource):
     def _open_capture(self) -> "Any":
         if self._capture_factory is not None:
             return self._capture_factory()
-        if not _CV2_AVAILABLE:
+        if cv2 is None:  # checks the live reference (also catches a patched-out cv2)
             raise RuntimeError(
                 "OpenCV (cv2) is unavailable — RtspSource needs it to decode the "
                 "stream. Install opencv-python on the host (dev dep) or the system "
