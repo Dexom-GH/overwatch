@@ -16,6 +16,7 @@ it is the AC5 "tiny subscriber" that prints frame ids + shapes + FPS on-device.
 from __future__ import annotations
 
 import logging
+import threading
 from typing import TYPE_CHECKING, Callable, List, Optional
 
 from overwatch.bus import topics
@@ -33,6 +34,7 @@ def run_capture(
     bus: "MessageBus",
     *,
     max_frames: Optional[int] = None,
+    stop: "Optional[threading.Event]" = None,
 ) -> int:
     """Publish a capture source's frames onto the bus; return the frame count.
 
@@ -42,13 +44,18 @@ def run_capture(
     RGB and depth come from a single ZED ``grab()`` so they share ``frame_id`` and
     ``timestamp`` — this driver preserves that pairing, it does not re-time them.
 
-    Stops after ``max_frames`` pairs when given (handy for the demo / tests).
-    Always closes the source on exit, including on error.
+    Stops after ``max_frames`` pairs when given (handy for the demo / tests). When
+    a ``stop`` event is supplied (the orchestrator's shutdown signal, see #38) the
+    loop checks it before each frame and returns cleanly once it is set — letting
+    the capture stage participate in an ordered pipeline shutdown. Always closes
+    the source on exit, including on error.
     """
     count = 0
     source.open()
     try:
         for frame, depth in source.frames():
+            if stop is not None and stop.is_set():
+                break
             bus.publish(topics.CAPTURE_FRAME, frame)
             if depth is not None:
                 bus.publish(topics.CAPTURE_DEPTH, depth)
