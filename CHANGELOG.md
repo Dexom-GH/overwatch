@@ -21,6 +21,16 @@ All notable changes to Overwatch are recorded here. Format follows
 - Release infrastructure (gated): CI workflow (host lint/type/tests), manual
   draft-release workflow, CalVer single-sourced version, gated on-device deploy
   script.
+- Fence-crossing alerts (#20): `fusion/events.py` `EventDetector` turns the track
+  stream into fence-crossing `Event`s (per-track centroid history over the
+  `fusion/zones.py` directed-crossing geometry, honouring each `FenceLine.crossing`
+  filter) and maps them to `Alert`s. 2D image-plane, so **mono-capable** (ADR-0006 —
+  fires on RTSP feeds too, no depth). `output/slack.py` `SlackAlertSink.send` now
+  formats alerts (severity → colour/emoji) and POSTs to the webhook via an injected
+  poster (stdlib `urllib`); spurious re-crossings de-dup through the shared
+  `ThrottledAlertSink`/`AlertThrottle` (#42). Host-tested end-to-end (detector →
+  alert → throttled Slack sink with a mocked webhook); live-track e2e is the
+  deferred on-device sign-off.
 - RTSP/IP capture source (#31, ADR-0006 forward-port): `capture/rtsp_source.py`
   publishes depth-less `(Frame, None)` pairs onto the bus (mono feeds carry no
   depth). Decode is OpenCV `cv2.VideoCapture`, backend-aware — GStreamer/NVDEC on
