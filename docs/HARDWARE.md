@@ -32,13 +32,18 @@ clocks with `sudo jetson_clocks`. **Observed 2026-06-03:** at `MODE_20W_6CORE`,
 two concurrent GPU jobs (a TensorRT engine build + a benchmark) **hard-rebooted
 the board** — a **power brownout, not thermal** (all zones ~58–60 °C, far below
 the ~95 °C throttle; cooling is not the limiter). The supply could not hold the
-peak draw of full concurrent GPU+CPU load at 20W.
+peak draw of full concurrent GPU+CPU load at 20W. **A second event (2026-06-03)**
+then powered the board **fully off (no restart)** during a *single* FP32 TensorRT
+engine build at `MODE_15W_4CORE`, CPU not maxed. So this is not a 20W-concurrency
+edge case: the supply (or the barrel connector / cable) cannot hold the **GPU
+transient peaks of even a single build/inference**.
 
-**Implication for V1:** the production pipeline runs ZED + DeepStream + on-demand
-ReID **concurrently** — the same multi-engine load. Until the power supply is
-upgraded to hold sustained 20W peak draw, run **`MODE_15W_4CORE`** for stability
-(lower peak draw). Re-evaluate 20W + `jetson_clocks` once an adequately-rated
-supply is fitted.
+**Implication for V1 — BLOCKER:** on-device GPU work (engine builds, inference,
+the whole pipeline) is **not viable on the current power setup**. Replace/verify
+the power supply **and** the barrel connector + cable before any further on-device
+GPU runs — this gates #5/#6/#7 on-device validation and the live pipeline. Cooling
+is not the limiter (idle ~58 °C). Only after a known-good, adequately rated supply
+is fitted should 15W → 20W + `jetson_clocks` be re-evaluated.
 
 ## Primary sensor — ZED 2i stereo camera
 
