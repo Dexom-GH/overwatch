@@ -11,7 +11,8 @@ the repo.
 
 ```
                           ┌─────────────────────── message bus ───────────────────────┐
-                          │  (Redis or ZeroMQ — see DECISIONS/0001, impl TBD)          │
+                          │  hybrid: ZeroMQ ephemeral + SQLite EventStore durable      │
+                          │  (ADR-0001; final-accept benchmark-gated)                  │
                           └────────────────────────────────────────────────────────────┘
    ┌──────────┐      ┌────────────────┐      ┌──────────────────┐      ┌──────────────┐
    │ capture  │ ───▶ │   inference    │ ───▶ │     fusion       │ ───▶ │   output     │
@@ -71,9 +72,11 @@ a first-class signal is a deliberate design choice, handled in `fusion/`.
 
 ## Message bus
 
-Stages are decoupled through the bus. The concrete transport (Redis vs ZeroMQ)
-is **not yet decided** — see
+Stages are decoupled through the bus. ADR-0001 is **accepted (hybrid)**: a
+**ZeroMQ** ephemeral tier for high-rate frame/track lanes plus a **SQLite
+EventStore** durable tier for Events/Alerts, the V1 default — with a **pending
+final-accept benchmark gate** (on-device RSS / p99 latency / frame-drop) before
+the hybrid is locked. See
 [DECISIONS/0001-message-bus-choice.md](DECISIONS/0001-message-bus-choice.md).
-`bus/base.py` defines the transport-agnostic `MessageBus` ABC; `redis_bus.py`
-and `zeromq_bus.py` are parallel stubs, neither privileged. To add a stage,
+`bus/base.py` defines the transport-agnostic `MessageBus` ABC. To add a stage,
 follow the `bus-stage-conventions` skill.
