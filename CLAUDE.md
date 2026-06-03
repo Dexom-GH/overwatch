@@ -79,10 +79,14 @@ CHANGELOG.md     Keep a Changelog; CalVer (see docs/RELEASING.md)
 
 Unresolved design choices are ADRs in [docs/DECISIONS/](docs/DECISIONS/). If you
 make or change one of these decisions, **update the ADR** — don't just change
-code. Currently open: 0003 (on-demand ReID trigger). Accepted: 0001 (message bus)
-**hybrid** — ZeroMQ ephemeral tier + SQLite EventStore durable tier, V1 default,
-final accept benchmark-gated; 0002 (ZED↔DeepStream) **hybrid** for V1; 0004
-**CalVer + gated releases** (→ [docs/RELEASING.md](docs/RELEASING.md)).
+code. Currently **open**: 0003 (on-demand ReID trigger) — its dispatch strategy
+is closed by the #8 benchmark. **Accepted:** 0001 (message bus) **hybrid** —
+ZeroMQ ephemeral tier + SQLite EventStore durable tier, V1 default, with a
+**pending final-accept benchmark gate** (RSS / p99 latency / frame-drop,
+on-device — see #8 and the ADR-0001 benchmark issue); 0002 (ZED↔DeepStream)
+**hybrid** for V1; 0004 **CalVer + gated releases**
+(→ [docs/RELEASING.md](docs/RELEASING.md)); 0005 (ReID weights licensing)
+**resolved by 0007**; 0007 **licensing posture** (non-commercial / AGPL-3.0).
 
 ## How to work here
 

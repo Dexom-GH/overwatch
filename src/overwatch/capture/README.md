@@ -20,6 +20,14 @@ The custom-GStreamer-source alternative (depth as first-class pipeline metadata)
 is kept open as the likely V2 evolution. If you build it, mark it `# V2→V1:` and
 update ADR-0002.
 
+### Gotcha: the ZED needs USB 3.0
+
+The ZED 2i **must** be on a USB-3.x port (a USB-3 cable, no intermediate USB-2
+hub). On a USB-2.0 link the SDK reports `CAMERA NOT DETECTED` with an empty
+`get_device_list()` even though the camera still enumerates as a UVC device in
+`lsusb`. Check the link speed with `lsusb -t` — the ZED's `Video` interfaces
+must show `5000M`/`10000M`, not `480M`. (Spike #6, recorded in ADR-0002.)
+
 ## Record / replay harness (#11)
 
 `recording.py` lets the depth/fusion/counting/health stack iterate **offline,
