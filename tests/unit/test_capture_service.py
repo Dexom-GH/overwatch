@@ -109,6 +109,36 @@ def test_run_capture_preserves_grab_alignment():
     assert frame.timestamp == depth.timestamp
 
 
+def test_run_capture_stops_before_publishing_when_stop_already_set():
+    import threading
+
+    src = _ListSource([(_frame(i), None) for i in range(100)])
+    bus = _FakeBus()
+    stop = threading.Event()
+    stop.set()
+    n = run_capture(src, bus, stop=stop)
+    assert n == 0
+    assert not bus.published
+    assert src.closed  # source still released on early stop
+
+
+def test_run_capture_stops_midstream_when_stop_set():
+    import threading
+
+    stop = threading.Event()
+
+    class _StopAfterFirstBus(_FakeBus):
+        def publish(self, topic, message):
+            super().publish(topic, message)
+            stop.set()  # a shutdown is requested after the first frame goes out
+
+    src = _ListSource([(_frame(i), None) for i in range(100)])
+    bus = _StopAfterFirstBus()
+    n = run_capture(src, bus, stop=stop)
+    assert n == 1  # the in-flight frame completes; the loop stops before the next
+    assert src.closed
+
+
 def test_fps_meter_estimates_rate():
     m = FpsMeter(window=10)
     for t in range(5):  # ticks 1s apart -> 1 fps
