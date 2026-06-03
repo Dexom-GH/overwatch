@@ -32,6 +32,26 @@ gotchas and points here.
 - **pip:** not preinstalled on this L4T's system python3; bootstrap with the py3.8
   `get-pip.py` (`--user`). See `docs/runbooks/jetson-provisioning.md`.
 
+### Provisioned versions (verified on-device 2026-06-03)
+
+What actually landed on the Xavier NX when #3 was provisioned (into a shared
+venv — see "As actually provisioned" in `docs/runbooks/jetson-provisioning.md`):
+
+| Component | Version |
+|---|---|
+| Python | 3.8.10 |
+| CUDA | 11.4 |
+| torch | `2.1.0a0+41361538.nv23.06` |
+| torchvision | 0.16.2 |
+| numpy | 1.24.4 |
+| tensorrt | 8.5.2.2 |
+| pyzed | 4.2 (ZED SDK 4.2.5) |
+| pyds | 1.1.8 (DeepStream 6.3) |
+| gi (PyGObject) | 3.36.0 |
+
+**Deviation worth flagging:** the ZED SDK installer used was the **L4T 35.4**
+build run on an **L4T 35.6** device — it worked.
+
 ## Build order (this order is load-bearing)
 
 ```
