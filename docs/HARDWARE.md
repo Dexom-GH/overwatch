@@ -25,6 +25,21 @@ captured data under `data/` (both gitignored).
 software stack at **JetPack 5.1.x** — JetPack 6 is Orin-only. See
 [SOFTWARE_STACK.md](SOFTWARE_STACK.md).
 
+## Power & thermal
+
+Power mode is set with `nvpmodel` (e.g. `MODE_10W/15W/20W_{2,4,6}CORE`); pin max
+clocks with `sudo jetson_clocks`. **Observed 2026-06-03:** at `MODE_20W_6CORE`,
+two concurrent GPU jobs (a TensorRT engine build + a benchmark) **hard-rebooted
+the board** — a **power brownout, not thermal** (all zones ~58–60 °C, far below
+the ~95 °C throttle; cooling is not the limiter). The supply could not hold the
+peak draw of full concurrent GPU+CPU load at 20W.
+
+**Implication for V1:** the production pipeline runs ZED + DeepStream + on-demand
+ReID **concurrently** — the same multi-engine load. Until the power supply is
+upgraded to hold sustained 20W peak draw, run **`MODE_15W_4CORE`** for stability
+(lower peak draw). Re-evaluate 20W + `jetson_clocks` once an adequately-rated
+supply is fitted.
+
 ## Primary sensor — ZED 2i stereo camera
 
 | Property | Value |

@@ -73,8 +73,10 @@ conversion **works**, with two gotchas:
   cosine **0.13** (near-orthogonal — Swin attention/LayerNorm overflows FP16's
   65504 range). The **FP32 engine is exact (cosine 1.00)**.
   - V1: **use the FP32 engine.** Xavier NX latency: FP32 **~40.6 ms**, FP16
-    **~16.7 ms**. For on-demand ReID (ADR-0003, off the streaming thread), 40 ms
-    is acceptable.
+    **~16.7 ms** — measured at `MODE_10W_4CORE` with DVFS (clocks not pinned), so
+    a **conservative lower bound**; expect faster at 15/20W + `jetson_clocks`, and
+    a cold (idle-GPU) on-demand call pays a DVFS ramp on top. For on-demand ReID
+    (ADR-0003, off the streaming thread), 40 ms is acceptable.
   - Optimization (defer to slice #17): mixed precision — keep overflow-prone
     layers FP32 (`--precisionConstraints=obey --layerPrecisions=...`) to recover
     FP16 speed without the accuracy loss; re-validate cosine.

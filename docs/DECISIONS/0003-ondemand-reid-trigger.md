@@ -55,8 +55,9 @@ trigger depends on. Two findings refine the "FP16 TensorRT" assumption in the
 Context above:
 
 - The engine builds and runs: MegaDescriptor-T-224 → 768-dim embedding,
-  ~16.7 ms (FP16) / ~40.6 ms (FP32) per crop on Xavier NX. On-demand dispatch
-  (off-thread) easily tolerates the FP32 figure.
+  ~16.7 ms (FP16) / ~40.6 ms (FP32) per crop on Xavier NX (measured at
+  `MODE_10W_4CORE`, DVFS unpinned — a conservative lower bound). On-demand
+  dispatch (off-thread) easily tolerates the FP32 figure.
 - **FP16 is not safe out-of-the-box.** Pure-FP16 cosine vs FP32 is ~0.13 (Swin
   overflows FP16); the FP32 engine is exact (1.00). **V1 should ship the FP32
   engine**; recovering FP16 speed needs mixed precision (FP32 fallback on
