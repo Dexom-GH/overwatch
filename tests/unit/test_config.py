@@ -132,6 +132,26 @@ def test_rejects_zero_rate_window():
         validate_config(data)
 
 
+# --- EventStore retention (#40) --------------------------------------------
+
+def test_store_retention_defaults():
+    cfg = validate_config(_valid_data())
+    assert cfg.output.store.retention.max_age_days == 90
+    assert cfg.output.store.retention.max_rows is None
+
+
+def test_store_retention_override_and_validation():
+    data = _valid_data()
+    data["output"]["store"]["retention"] = {"max_age_days": 30, "max_rows": 100000}
+    cfg = validate_config(data)
+    assert cfg.output.store.retention.max_age_days == 30
+    assert cfg.output.store.retention.max_rows == 100000
+    # non-positive age is rejected
+    data["output"]["store"]["retention"] = {"max_age_days": 0}
+    with pytest.raises(ConfigError):
+        validate_config(data)
+
+
 # --- ADR-0001 conditional bus / store rule ---------------------------------
 
 def test_zeromq_requires_endpoint():

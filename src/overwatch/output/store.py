@@ -29,5 +29,15 @@ class EventStore(ABC):
         """Return records of ``kind`` within the time window."""
         raise NotImplementedError
 
+    @abstractmethod
+    def prune(self, before: float) -> int:
+        """Delete records with ``timestamp < before``; return how many were removed.
+
+        The durable-tier retention hook (#40): the EventStore must bound its own
+        growth so 24/7 logging cannot fill the NVMe. Callers derive ``before`` from
+        a :class:`~overwatch.output.retention.RetentionPolicy` (``age_cutoff``).
+        """
+        raise NotImplementedError
+
 
 __all__ = ["EventStore"]

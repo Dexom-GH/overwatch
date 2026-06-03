@@ -140,10 +140,23 @@ class SlackConfig(_Strict):
     webhook: Optional[str] = None
 
 
+class RetentionConfig(_Strict):
+    """EventStore retention budget (#40); see output/retention.py + docs/STORAGE.md.
+
+    Bounds the durable tier so 24/7 logging cannot fill the 512 GB NVMe. Either
+    bound null = not enforced. Recording/crop rotation budgets are filesystem-side
+    (``RetentionPolicy`` / ``enforce_directory``), documented in docs/STORAGE.md.
+    """
+
+    max_age_days: Optional[int] = Field(default=90, gt=0)
+    max_rows: Optional[int] = Field(default=None, gt=0)
+
+
 class StoreConfig(_Strict):
     backend: Literal["sqlite", "redis"]
     path: Optional[str] = None
     url_env: Optional[str] = None
+    retention: RetentionConfig = Field(default_factory=RetentionConfig)
 
     @model_validator(mode="after")
     def _check_backend_fields(self) -> "StoreConfig":

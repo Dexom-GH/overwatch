@@ -43,6 +43,7 @@ HOST_SAFE_MODULES = [
     "overwatch.output.slack",
     "overwatch.output.throttle",             # shared alert de-dup / rate-limit (#42)
     "overwatch.output.store",
+    "overwatch.output.retention",            # data-retention / rotation policy (#40)
     "overwatch.config",
     "overwatch.config.loader",
     "overwatch.observability",               # metrics + structured logging (#13)
