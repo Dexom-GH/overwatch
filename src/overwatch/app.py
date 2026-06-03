@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
 from overwatch.capture.service import run_capture
 from overwatch.orchestrator import Stage, Supervisor
@@ -44,13 +44,16 @@ class CaptureStage(Stage):
     finite replay source completes on its own.
     """
 
-    def __init__(self, source: "CaptureSource", bus: "MessageBus") -> None:
+    def __init__(
+        self, source: "CaptureSource", bus: "MessageBus", name: str = "capture"
+    ) -> None:
         self._source = source
         self._bus = bus
+        self._name = name
 
     @property
     def name(self) -> str:
-        return "capture"
+        return self._name
 
     def run(self, stop: "threading.Event") -> None:
         n = run_capture(self._source, self._bus, stop=stop)
@@ -68,17 +71,45 @@ def _build_bus(cfg: "AppConfig") -> "MessageBus":
     return RedisBus()
 
 
-def _build_stages(cfg: "AppConfig", bus: "MessageBus") -> "List[Stage]":
-    """Construct the runnable stages in pipeline order. TARGET-ONLY.
+def _build_source(src_cfg: "Any") -> "CaptureSource":
+    """Construct one capture source from its typed config (ADR-0006 #30/#31).
 
-    Today only the capture stage exists as a runnable service; it constructs the
-    live ``ZedSource`` (pyzed, guarded) so this runs on the Jetson only. Inference
-    (#15), fusion, and output stages are appended here — in order — as they land.
+    Dispatches on the discriminated ``type``: ``zed`` -> the live ``ZedSource``
+    (pyzed, target-only — its import is guarded so it only fails on the Jetson when
+    pyzed is absent), ``rtsp`` -> the depth-less ``RtspSource`` (OpenCV; host-
+    constructible — cv2 is only touched when the stream is opened). Heavy imports
+    stay inside their branch so building the *other* source type never drags them in.
     """
-    from overwatch.capture.zed_source import ZedSource
+    if src_cfg.type == "zed":
+        from overwatch.capture.zed_source import ZedSource
 
-    source = ZedSource(source_id=cfg.capture.source_id, fps=cfg.capture.fps)
-    return [CaptureStage(source, bus)]
+        return ZedSource(source_id=src_cfg.source_id, fps=src_cfg.fps)
+    if src_cfg.type == "rtsp":
+        from overwatch.capture.rtsp_source import RtspSource
+
+        return RtspSource(
+            source_id=src_cfg.source_id,
+            url=src_cfg.url,
+            fps=src_cfg.fps,
+            cred=src_cfg.cred,
+        )
+    raise ValueError("unknown capture source type: {!r}".format(src_cfg.type))
+
+
+def _build_stages(cfg: "AppConfig", bus: "MessageBus") -> "List[Stage]":
+    """Construct the runnable stages in pipeline order.
+
+    One :class:`CaptureStage` per configured source (ADR-0006 multi-source) —
+    named ``capture:<source_id>`` so each is a distinct, supervisable stage. The
+    ``rtsp`` sources are host-runnable; a ``zed`` source makes this target-only
+    (pyzed). Inference (#15), fusion, and output stages are appended here — in
+    order — as they land.
+    """
+    stages: "List[Stage]" = []
+    for src_cfg in cfg.capture.sources:
+        source = _build_source(src_cfg)
+        stages.append(CaptureStage(source, bus, name="capture:" + src_cfg.source_id))
+    return stages
 
 
 def build_supervisor(cfg: "AppConfig") -> Supervisor:

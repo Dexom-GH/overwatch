@@ -30,6 +30,10 @@ dev = [
     "ruff",
     "mypy",
     "pytest",
+    # Host decode backend for the RTSP capture source (#31). On the Jetson the
+    # system GStreamer/NVDEC-enabled OpenCV provides cv2 instead (see
+    # requirements.target.txt) — do NOT pip-install this wheel on-device.
+    "opencv-python",
 ]
 
 [project.scripts]

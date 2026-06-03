@@ -5,6 +5,11 @@ ruff
 mypy
 pytest
 
+# Host decode backend for the RTSP capture source (#31). On the Jetson, cv2 comes
+# from the system GStreamer/NVDEC OpenCV build, NOT this wheel — see
+# requirements.target.txt.
+opencv-python
+
 # Host-runnable runtime deps (mirror pyproject [project].dependencies)
 numpy
 pyyaml
