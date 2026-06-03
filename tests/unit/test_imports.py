@@ -25,6 +25,7 @@ HOST_SAFE_MODULES = [
     "overwatch.capture.recording",           # host-safe (record/replay harness)
     "overwatch.capture.service",             # host-safe (capture spine driver)
     "overwatch.inference",
+    "overwatch.inference.labels",            # animals.yaml -> labels.txt source of truth (#57)
     "overwatch.inference.detection",
     "overwatch.inference.tracking",
     "overwatch.inference.pose",
