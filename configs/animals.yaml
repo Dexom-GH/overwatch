@@ -1,7 +1,9 @@
 # Target animal classes for V1 — the single source of truth for the class set.
-# class_id values are placeholders — they must match the detector's class map
-# once the detector model is chosen/trained. ID difficulty is a note for the
-# ReID work (rabbits/guinea pigs are hardest — low inter-individual variance).
+# These class_id values are CANONICAL: the detector is custom fine-tuned on our
+# own data, so we own the label map. The detector's labels.txt
+# (src/overwatch/inference/deepstream/configs/labels.txt) is generated FROM this
+# file, in class_id order. ID difficulty is a note for the ReID work (rabbits/
+# guinea pigs are hardest — low inter-individual variance).
 #
 # tier = data-availability tier for DETECTION (PO-approved 2026-06-02; see #5):
 #   1 = spine species, public detection data exists → drives #15/#16
@@ -9,7 +11,10 @@
 #   3 = bespoke-data-gated, no public detection data → tracked in #35;
 #       in V1 only if labeling lands in time, else demoted to V2.
 # Custom detector fine-tuning is required regardless (COCO omits goat/rabbit/
-# guinea pig). Detector-model pick deferred pending ADR-0005 (#27) + ADR-0006 (#29).
+# guinea pig). Detector model: Ultralytics YOLOv8, licensing-cleared under
+# ADR-0007 (non-commercial/AGPL); see docs/SOFTWARE_STACK.md "Models". The earlier
+# ADR-0006 (#29, multi-camera, closed) only requires the detector run batched in
+# nvstreammux across ZED + RTSP.
 
 animals:
   - class_id: 0

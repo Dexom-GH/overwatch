@@ -1,0 +1,40 @@
+# nvinfer config — V1 detector (Ultralytics YOLOv8). STUB: tune on-device.
+#
+# Model & licensing: Ultralytics YOLOv8, fine-tuned on our 5 V1 animal classes
+# (configs/animals.yaml is the class-id source of truth). AGPL-3.0, cleared under
+# ADR-0007 (non-commercial/AGPL). See docs/SOFTWARE_STACK.md "Models".
+#
+# Engine: built ON DEVICE from the fine-tuned YOLOv8 ONNX via TensorRT 8.5
+# (network-mode=2 = FP16). Engines live under models/ (gitignored). The bbox
+# parser comes from marcoslucianops/DeepStream-Yolo (NvDsInferParseYolo +
+# libnvdsinfer_custom_impl_Yolo.so), installed on device.
+#
+# Paths below are placeholders resolved at the on-device run dir — adjust when
+# wiring the pipeline on the Jetson (#6 / #15). NOT yet validated on device.
+
+[property]
+gpu-id=0
+net-scale-factor=0.0039215697906911373   # 1/255
+model-color-format=0                       # 0=RGB
+# onnx-file / model-engine-file: produced on device (see trt-model-conversion).
+onnx-file=models/yolov8_farm.onnx
+model-engine-file=models/yolov8_farm_fp16.engine
+labelfile-path=labels.txt
+batch-size=1                               # raise for nvstreammux multi-stream (ADR-0006)
+network-mode=2                             # 0=FP32 1=INT8 2=FP16
+num-detected-classes=5                     # MUST match configs/animals.yaml
+interval=0
+gie-unique-id=1
+process-mode=1
+network-type=0                             # 0=detector
+cluster-mode=2                             # 2=NMS
+maintain-aspect-ratio=1
+symmetric-padding=1
+# DeepStream-Yolo custom parser (installed on device):
+parse-bbox-func-name=NvDsInferParseYolo
+custom-lib-path=models/DeepStream-Yolo/nvdsinfer_custom_impl_Yolo/libnvdsinfer_custom_impl_Yolo.so
+
+[class-attrs-all]
+nms-iou-threshold=0.45
+pre-cluster-threshold=0.25
+topk=300
