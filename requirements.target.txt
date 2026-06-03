@@ -23,3 +23,7 @@ pydantic>=2
 # install (aarch64 / Python 3.8 wheels exist; the bus impl is issue #10).
 pyzmq
 # redis            (only if the on-device benchmark flips ADR-0001 back to Redis)
+
+# Secrets resolution from .env / env (#41). Pure-Python, plain PyPI install
+# (aarch64 / Python 3.8 wheel exists; verify on-device with the rest).
+python-dotenv

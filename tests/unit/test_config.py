@@ -6,10 +6,12 @@ flagging. All host-runnable (no device/gpu/zed markers).
 """
 
 import logging
+from pathlib import Path
 
 import pytest
 
 from overwatch.config import AppConfig, ConfigError, load_config
+from overwatch.config.loader import validate_secrets
 from overwatch.config.schema import validate_config
 
 
@@ -205,20 +207,67 @@ def test_slack_webhook_none_when_env_unset(tmp_path, monkeypatch):
     monkeypatch.setenv("OVERWATCH_CONFIG_DIR", str(tmp_path))
     (tmp_path / "default.yaml").write_text(_yaml(_valid_data()))
     monkeypatch.delenv("SLACK_WEBHOOK", raising=False)
+    # Point at an absent .env so a developer's real repo .env can't leak in.
+    monkeypatch.setenv("OVERWATCH_ENV_FILE", str(tmp_path / ".env.absent"))
     cfg = load_config()
     assert cfg.output.slack.webhook is None
 
 
-def test_env_unset_does_not_clobber_yaml_webhook(tmp_path, monkeypatch):
-    # An operator who sets webhook directly in YAML must not have it wiped to None
-    # just because the SLACK_WEBHOOK env var is absent.
+def test_secret_in_yaml_is_rejected(tmp_path, monkeypatch):
+    # #41: secrets must NEVER live in YAML. A webhook literal in any YAML layer is
+    # a hard error — it must come from the environment / .env instead.
     monkeypatch.setenv("OVERWATCH_CONFIG_DIR", str(tmp_path))
     (tmp_path / "default.yaml").write_text(_yaml(_valid_data()))
     override = tmp_path / "override.yaml"
     override.write_text("output:\n  slack:\n    webhook: https://hooks.example/in-yaml\n")
+    monkeypatch.setenv("OVERWATCH_ENV_FILE", str(tmp_path / ".env.absent"))
+    with pytest.raises(ConfigError) as exc:
+        load_config(str(override))
+    assert "webhook" in str(exc.value).lower()
+
+
+# --- .env / secrets resolution (#41) ---------------------------------------
+
+def test_secret_resolves_from_dotenv_file(tmp_path, monkeypatch):
+    monkeypatch.setenv("OVERWATCH_CONFIG_DIR", str(tmp_path))
+    (tmp_path / "default.yaml").write_text(_yaml(_valid_data()))
+    env_file = tmp_path / ".env"
+    env_file.write_text("SLACK_WEBHOOK=https://hooks.example/from-dotenv\n")
+    monkeypatch.setenv("OVERWATCH_ENV_FILE", str(env_file))
     monkeypatch.delenv("SLACK_WEBHOOK", raising=False)
-    cfg = load_config(str(override))
-    assert cfg.output.slack.webhook == "https://hooks.example/in-yaml"
+    cfg = load_config()
+    assert cfg.output.slack.webhook == "https://hooks.example/from-dotenv"
+
+
+def test_real_env_var_wins_over_dotenv(tmp_path, monkeypatch):
+    # A value already in the process environment must win over the .env fallback.
+    monkeypatch.setenv("OVERWATCH_CONFIG_DIR", str(tmp_path))
+    (tmp_path / "default.yaml").write_text(_yaml(_valid_data()))
+    env_file = tmp_path / ".env"
+    env_file.write_text("SLACK_WEBHOOK=https://hooks.example/from-dotenv\n")
+    monkeypatch.setenv("OVERWATCH_ENV_FILE", str(env_file))
+    monkeypatch.setenv("SLACK_WEBHOOK", "https://hooks.example/from-realenv")
+    cfg = load_config()
+    assert cfg.output.slack.webhook == "https://hooks.example/from-realenv"
+
+
+def test_validate_secrets_raises_when_required_secret_missing(tmp_path, monkeypatch):
+    monkeypatch.setenv("OVERWATCH_CONFIG_DIR", str(tmp_path))
+    (tmp_path / "default.yaml").write_text(_yaml(_valid_data()))
+    monkeypatch.delenv("SLACK_WEBHOOK", raising=False)
+    monkeypatch.setenv("OVERWATCH_ENV_FILE", str(tmp_path / ".env.absent"))
+    cfg = load_config()  # lenient load: webhook is None, no raise here
+    with pytest.raises(ConfigError) as exc:
+        validate_secrets(cfg)
+    assert "SLACK_WEBHOOK" in str(exc.value)
+
+
+def test_validate_secrets_passes_when_secret_present(tmp_path, monkeypatch):
+    monkeypatch.setenv("OVERWATCH_CONFIG_DIR", str(tmp_path))
+    (tmp_path / "default.yaml").write_text(_yaml(_valid_data()))
+    monkeypatch.setenv("SLACK_WEBHOOK", "https://hooks.example/ok")
+    cfg = load_config()
+    validate_secrets(cfg)  # must not raise
 
 
 def test_nonstring_webhook_env_raises_configerror(tmp_path, monkeypatch):
@@ -238,6 +287,14 @@ def test_load_emits_must_tune_warning(tmp_path, monkeypatch, caplog):
     with caplog.at_level(logging.WARNING):
         load_config()
     assert any("must-tune" in r.getMessage().lower() for r in caplog.records)
+
+
+def test_env_example_documents_secrets(tmp_path, monkeypatch):
+    # .env.example must document every secret the loader/validate_secrets expect.
+    root = Path(__file__).resolve().parents[2]
+    text = (root / ".env.example").read_text(encoding="utf-8")
+    assert "SLACK_WEBHOOK" in text          # required secret
+    assert "RTSP_CRED" in text              # per-camera creds pattern (#30)
 
 
 def _yaml(data):

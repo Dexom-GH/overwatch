@@ -10,3 +10,4 @@ numpy
 pyyaml
 pydantic>=2
 pyzmq
+python-dotenv
