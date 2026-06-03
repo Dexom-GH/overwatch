@@ -45,6 +45,7 @@ HOST_SAFE_MODULES = [
     "overwatch.output.store",
     "overwatch.config",
     "overwatch.config.loader",
+    "overwatch.observability",               # metrics + structured logging (#13)
     "overwatch.orchestrator",                # pipeline supervision spine (#38)
     "overwatch.app",
 ]
