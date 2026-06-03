@@ -1,8 +1,8 @@
 # ADR 0005 — ReID model & weights licensing for commercial use
 
-- **Status:** Proposed
-- **Date:** 2026-06-02
-- **Deciders:** Product Owner (pending)
+- **Status:** Accepted (resolved by [ADR-0007](0007-licensing-posture.md), 2026-06-03)
+- **Date:** 2026-06-02 (decided 2026-06-03)
+- **Deciders:** Product Owner
 
 ## Context
 
@@ -11,14 +11,23 @@ referenced across `CLAUDE.md`, `docs/ARCHITECTURE.md`, `docs/SOFTWARE_STACK.md`,
 and `configs/`. Its HuggingFace model card declares the weights as
 **`cc-by-nc-4.0` (NON-COMMERCIAL)**, confirmed at decision-recording time.
 
-Overwatch is a **commercial** product. Shipping the MegaDescriptor weights as-is
-is therefore a **licensing blocker** on the production ReID path. The ReID
-embedding model gates issue **#7** (Swin→TRT conversion), **#17** (on-demand ReID
-embedding), and **#21** (gallery seed/match), so this must be resolved before any
-of those reach production.
+Overwatch was originally assumed to be a **commercial** product, which made
+shipping the MegaDescriptor `cc-by-nc` weights as-is a **licensing blocker** on
+the production ReID path (this model gates **#7** Swin→TRT conversion, **#17**
+on-demand ReID embedding, **#21** gallery seed/match).
+
+**That premise was wrong.** [ADR-0007](0007-licensing-posture.md) (2026-06-03)
+records that Overwatch is **non-commercial** and **open-source**. Under that
+posture, `cc-by-nc-4.0` non-commercial use is permitted, so the blocker is
+**dissolved** — see the Decision below. The options enumerated here are retained
+for the record.
 
 **Provenance to record (verify each at decision time):**
-- Toolkit: `WildlifeDatasets/wildlife-tools` (verify its own license at decision time).
+- Toolkit: `WildlifeDatasets/wildlife-tools` — **MIT** (verified 2026-06-03); the
+  canonical toolkit for MegaDescriptor embeddings/retrieval/eval. Its sibling
+  `WildlifeDatasets/wildlife-datasets` is also MIT (code), but per-dataset licenses
+  vary and it has **no** sheep/goat/rabbit/guinea-pig coverage (only Chicks4FreeID
+  poultry — tracked under #28). Neither is a detection-data source for #5.
 - Weights: `BVRA/MegaDescriptor-T-224`.
 - Architecture: Swin-Tiny @ 224.
 
@@ -52,15 +61,28 @@ evaluated under the **#28** spike (ADR-0006-independent). It does not resolve th
 
 ## Decision
 
-**OPEN — no option chosen yet.** Pending PO selection of option a / b / c / d.
-Tracked in issue **#27**. Status remains **Proposed** until the PO decides.
+**Resolved by [ADR-0007](0007-licensing-posture.md):** keep
+`BVRA/MegaDescriptor-T-224` (`cc-by-nc-4.0`) **as-is** for V1. The project is
+**non-commercial**, so the weights' non-commercial license is satisfied — none of
+options A–D (NC-for-spike-only / train-own / commercial-license / alt-backbone)
+is needed. The named-model references across `CLAUDE.md`,
+`docs/ARCHITECTURE.md`, `docs/SOFTWARE_STACK.md`, `configs/`, and the
+`trt-model-conversion` skill **stand unchanged**.
+
+This unblocks #7 / #17 / #21 for production (no NC-gating caveat). Tracked in
+issue **#27** — recommend closing as resolved-by-ADR-0007. If the project's
+commercial posture ever changes, this decision and ADR-0007 must be revisited
+together.
 
 ## Consequences
 
-- If the chosen model is **not** MegaDescriptor (options B/D, or a model swap
-  under C), downstream edits are required to `CLAUDE.md`, `docs/ARCHITECTURE.md`,
-  `docs/SOFTWARE_STACK.md`, `configs/`, and the `trt-model-conversion` skill.
-- This ADR **gates #7 / #17 / #21**; #7 may proceed on NC weights for *conversion
-  friction only* (option A semantics) but must not be treated as production-ready.
-- Revisit when: the PO selects an option, the authors publish commercial terms, or
-  a better commercially-licensed backbone emerges.
+- MegaDescriptor **stays** — no downstream edits to `CLAUDE.md`,
+  `docs/ARCHITECTURE.md`, `docs/SOFTWARE_STACK.md`, `configs/`, or the
+  `trt-model-conversion` skill are required (the alternative options A–D would
+  each have forced some of these).
+- #7 / #17 / #21 are **unblocked for production** — the earlier
+  "NC weights, conversion-friction-only, not production-ready" caveat no longer
+  applies under ADR-0007.
+- Revisit when: the project's **commercial posture** changes (see ADR-0007) — at
+  which point the NC license becomes a blocker again and options A–D are back in
+  play.

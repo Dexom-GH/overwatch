@@ -52,6 +52,41 @@ venv — see "As actually provisioned" in `docs/runbooks/jetson-provisioning.md`
 **Deviation worth flagging:** the ZED SDK installer used was the **L4T 35.4**
 build run on an **L4T 35.6** device — it worked.
 
+## Models (detector + ReID)
+
+The two inference models, their provenance, and licensing. Licensing is cleared
+under the **non-commercial / AGPL / public** posture in
+[DECISIONS/0007](DECISIONS/0007-licensing-posture.md) — under a *commercial*
+posture both picks below would be blockers.
+
+| Role | Model | Arch | Weights/code license | DeepStream path |
+|---|---|---|---|---|
+| **Detector** (`nvinfer`) | **Ultralytics YOLOv8** | YOLOv8 | **AGPL-3.0** (code + weights) — OK under ADR-0007 (#5) | ONNX → TRT 8.5 engine; bbox parser via `marcoslucianops/DeepStream-Yolo`. |
+| **ReID** (on-demand) | **`BVRA/MegaDescriptor-T-224`** | Swin-Tiny @ 224 | **`cc-by-nc-4.0`** (non-commercial) — OK under ADR-0007 (#27) | Swin → TRT FP16 (8.5); see the `trt-model-conversion` skill + ADR-0003. |
+
+### Detector — V1 choice (#5)
+
+- **Class set is the 5 V1 animals** — `configs/animals.yaml` is the **single
+  source of truth** for `class_id` ↔ name. The detector's label map
+  (`src/overwatch/inference/deepstream/configs/labels.txt`) is generated to match
+  it, in `class_id` order.
+- **Custom fine-tune is required regardless of model.** COCO does **not** cover
+  goat / rabbit / guinea pig, so the shipped detector is fine-tuned on our own
+  data (tier-3 species data-gated in #35). This is why the **training-code**
+  license (AGPL-3.0, fine) matters as much as the pretrained-weights license.
+- **Why YOLOv8 over the permissive alternatives** (YOLOX/PP-YOLOE+ Apache-2.0,
+  TAO-custom): once AGPL is acceptable under ADR-0007, Ultralytics is the most
+  mature option with the best-maintained DeepStream `nvinfer` bbox parser and the
+  simplest custom-class fine-tune. `YOLO11` is a drop-in upgrade path on the same
+  parser if desired.
+- **nvinfer / nvtracker wiring:** `src/overwatch/inference/deepstream/configs/`
+  (`nvinfer_detector.txt`, `labels.txt`, `nvtracker.txt`), referenced from
+  `configs/default.yaml` (`inference.detector_config` / `tracker_config`). The
+  TRT engine lives under `models/` (gitignored; built on device).
+- **NOT yet validated on device:** on-device sanity inference (engine loads in
+  `nvinfer` and produces plausible detections) is target-only and deferred to the
+  Jetson — see #5's remaining exit criterion.
+
 ## Build order (this order is load-bearing)
 
 ```

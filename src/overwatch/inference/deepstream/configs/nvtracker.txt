@@ -1,0 +1,17 @@
+# nvtracker config — V1. STUB: tune for herd motion on-device (#6 / #15).
+#
+# NvDCF (NvMultiObjectTracker) is the V1 default: discriminative-correlation-filter
+# tracking with re-association, good for the moderate counts / occlusion expected
+# on a farm. ll-config-file is the NvDCF tuning yml shipped with DeepStream; the
+# accuracy-vs-perf preset is chosen on device. The track IDs this emits are what
+# the on-demand ReID trigger probe keys off (ADR-0003).
+
+[tracker]
+tracker-width=640
+tracker-height=384
+gpu-id=0
+# Paths resolve to the DeepStream install on the Jetson — adjust on device:
+ll-lib-file=/opt/nvidia/deepstream/deepstream/lib/libnvds_nvmultiobjecttracker.so
+ll-config-file=/opt/nvidia/deepstream/deepstream/samples/configs/deepstream-app/config_tracker_NvDCF_perf.yml
+enable-batch-process=1
+enable-past-frame=1

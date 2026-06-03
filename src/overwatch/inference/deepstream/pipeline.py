@@ -34,7 +34,9 @@ except Exception as exc:  # pragma: no cover - host path
 class DeepStreamPipeline:
     """Owns the GStreamer pipeline lifecycle. Skeleton — see module docstring."""
 
-    def __init__(self, config_dir: str = "configs/deepstream") -> None:
+    def __init__(
+        self, config_dir: str = "src/overwatch/inference/deepstream/configs"
+    ) -> None:
         if not _GST_AVAILABLE:
             raise RuntimeError(
                 "GStreamer/pyds unavailable — DeepStream is target-only (Jetson). "
