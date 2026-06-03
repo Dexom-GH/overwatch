@@ -21,6 +21,13 @@ All notable changes to Overwatch are recorded here. Format follows
 - Release infrastructure (gated): CI workflow (host lint/type/tests), manual
   draft-release workflow, CalVer single-sourced version, gated on-device deploy
   script.
+- RTSP/IP capture source (#31, ADR-0006 forward-port): `capture/rtsp_source.py`
+  publishes depth-less `(Frame, None)` pairs onto the bus (mono feeds carry no
+  depth). Decode is OpenCV `cv2.VideoCapture`, backend-aware — GStreamer/NVDEC on
+  the Jetson, ffmpeg on the host — with bounded reconnect/backoff and credential
+  redaction. `app._build_stages` becomes a multi-source factory (`zed` | `rtsp`),
+  one supervised `capture:<source_id>` stage per configured source. `opencv-python`
+  added as a host dev dep (on-device cv2 is the system GStreamer build).
 - Bus message (de)serialization (#10): a typed codec (`bus/serialization.py`,
   JSON header + raw numpy frames) and a working `ZeroMqBus` (inproc PUB/SUB) so
   every `schemas.*` dataclass round-trips over the ZeroMQ ephemeral tier

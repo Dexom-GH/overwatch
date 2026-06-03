@@ -9,11 +9,14 @@ capture spine a supervisable :class:`~overwatch.orchestrator.Stage`, and
 import threading
 
 import numpy as np
+import pytest
 
-from overwatch.app import CaptureStage, run_pipeline
+from overwatch.app import CaptureStage, _build_source, _build_stages, run_pipeline
 from overwatch.bus import topics
 from overwatch.bus.schemas import Frame
 from overwatch.capture.base import CaptureSource
+from overwatch.capture.rtsp_source import RtspSource
+from overwatch.config.schema import RtspSourceConfig
 
 
 def _frame(fid):
@@ -66,6 +69,32 @@ class TestCaptureStage:
         stop.set()
         CaptureStage(src, bus).run(stop)
         assert bus.published == []
+
+
+class TestBuildStages:
+    """The source factory dispatches typed config to concrete CaptureSources (#31)."""
+
+    def _rtsp(self, source_id, url="rtsp://cam/stream", fps=10):
+        return RtspSourceConfig(type="rtsp", source_id=source_id, url=url, fps=fps)
+
+    def test_build_source_rtsp(self):
+        src = _build_source(self._rtsp("cam-1"))
+        assert isinstance(src, RtspSource)
+
+    def test_build_source_unknown_type_raises(self):
+        from types import SimpleNamespace
+
+        with pytest.raises(ValueError, match="unknown capture source type"):
+            _build_source(SimpleNamespace(type="bogus"))
+
+    def test_build_stages_one_named_stage_per_source(self):
+        from types import SimpleNamespace
+
+        cfg = SimpleNamespace(  # _build_stages only reads cfg.capture.sources
+            capture=SimpleNamespace(sources=[self._rtsp("cam-1"), self._rtsp("cam-2")])
+        )
+        stages = _build_stages(cfg, _FakeBus())
+        assert [s.name for s in stages] == ["capture:cam-1", "capture:cam-2"]
 
 
 class _RecordingSupervisor:

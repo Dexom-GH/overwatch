@@ -11,6 +11,9 @@
 # torchvision      -> matching Jetson wheel
 # tensorrt (8.5)   -> ships with JetPack
 # pyds             -> ships with DeepStream
+# opencv (cv2)     -> system GStreamer/NVDEC-enabled build (JetPack/apt or NVIDIA's
+#                     L4T OpenCV), NOT pip `opencv-python` — the RTSP capture source
+#                     (#31) drives NVDEC via a cv2.CAP_GSTREAMER pipeline on-device.
 
 # Config loading + validation. Plain PyPI installs (unlike the deps above).
 # pyyaml: imported unconditionally by config/loader.py (target runtime entry point).

@@ -64,6 +64,11 @@ gain a **genuine V1 use without a gallery** (association by embedding similarity
 
 - **Config (#30):** `CaptureConfig` gains a typed source list; RTSP secrets via env.
 - **Capture (#31):** RTSP `CaptureSource` publishes `capture.frame` with `depth=None`.
+  Its OpenCV decode (GStreamer/NVDEC on-device) **deliberately coexists** with the
+  DeepStream `uridecodebin` decode in #32 — the same RGB-to-bus + RGB-to-DeepStream
+  hybrid ADR-0002 accepts for the ZED. The resulting per-stream **double NVDEC
+  decode** is a benchmark exit criterion in #8; if the Xavier NX can't sustain it,
+  the fallback is to make #32 the single decode point and tap its buffers.
 - **Inference (#32):** `nvstreammux` batches ZED + N RTSP; `source_id` preserved.
 - **Fusion/Output (#33):** mono 2D zone counting + Slack (no depth de-dup).
 - **Cross-camera (#34):** de-dup/hand-off spike; V1 use of ReID embeddings sans gallery.
