@@ -35,6 +35,7 @@ HOST_SAFE_MODULES = [
     "overwatch.inference.reid.gallery",
     "overwatch.fusion",
     "overwatch.fusion.depth_fusion",
+    "overwatch.fusion.zones",                # zone/fence format + geometry (#12)
     "overwatch.fusion.zone_counting",
     "overwatch.fusion.health",
     "overwatch.fusion.events",

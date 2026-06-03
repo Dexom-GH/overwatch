@@ -10,7 +10,7 @@ Target code — kept Python 3.8-compatible. The bus/store fields follow ADR-0001
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
@@ -67,15 +67,68 @@ class EventsConfig(_Strict):
     fence_zones: List[str] = Field(default_factory=list)
 
 
-class Zone(BaseModel):
-    """Permissive on purpose: the real zone format is a soft dep on #12."""
+# A 2D point. In ``image`` space these are pixels (x,y) in the source frame; in
+# ``ground`` space they are metres on the ground plane (requires the on-device
+# depth<->ground calibration, #6 — target-side, deferred). See fusion/zones.py.
+Point = Tuple[float, float]
 
-    model_config = ConfigDict(extra="allow")
+
+class Zone(_Strict):
+    """A named counting/region polygon consumed by ``fusion/`` (#12).
+
+    ``space`` selects the coordinate frame (image-plane pixels by default; ground
+    metres per ADR-0006). The optional depth band (``depth_min_m``/``depth_max_m``)
+    scopes the zone to a range slab for ZED depth de-dup. ``source_id`` ties the
+    zone to one camera (None = the single V1 source).
+    """
+
     name: str
+    polygon: List[Point]
+    space: Literal["image", "ground"] = "image"
+    source_id: Optional[str] = None
+    depth_min_m: Optional[float] = Field(default=None, ge=0.0)
+    depth_max_m: Optional[float] = Field(default=None, ge=0.0)
+
+    @model_validator(mode="after")
+    def _check_zone(self) -> "Zone":
+        if len(self.polygon) < 3:
+            raise ValueError("zone '{}' polygon needs >= 3 points".format(self.name))
+        if (
+            self.depth_min_m is not None
+            and self.depth_max_m is not None
+            and self.depth_min_m >= self.depth_max_m
+        ):
+            raise ValueError(
+                "zone '{}' depth_min_m must be < depth_max_m".format(self.name)
+            )
+        return self
+
+
+class FenceLine(_Strict):
+    """A named boundary line consumed by fence-crossing (#20).
+
+    ``line`` is an ordered polyline (>= 2 points) in ``space`` coords; ``crossing``
+    selects which traversal direction fires an event (``any``, or the signed
+    ``in_to_out`` / ``out_to_in``, where 'out' is the left side of the directed
+    line). ``source_id`` ties the fence to one camera.
+    """
+
+    name: str
+    line: List[Point]
+    space: Literal["image", "ground"] = "image"
+    crossing: Literal["any", "in_to_out", "out_to_in"] = "any"
+    source_id: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _check_line(self) -> "FenceLine":
+        if len(self.line) < 2:
+            raise ValueError("fence '{}' line needs >= 2 points".format(self.name))
+        return self
 
 
 class FusionConfig(_Strict):
     zones: List[Zone] = Field(default_factory=list)
+    fences: List[FenceLine] = Field(default_factory=list)
     health: HealthConfig
     events: EventsConfig
 
