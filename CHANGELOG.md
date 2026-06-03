@@ -21,6 +21,15 @@ All notable changes to Overwatch are recorded here. Format follows
 - Release infrastructure (gated): CI workflow (host lint/type/tests), manual
   draft-release workflow, CalVer single-sourced version, gated on-device deploy
   script.
+- Mono 2D zone counting -> alert (#33): `fusion/zone_counting.py`
+  `ZoneCounter.count_2d` counts tracks whose bbox centroid falls inside each
+  configured `Zone` (image-plane `point_in_polygon`, **no depth de-dup** — the
+  mono path per ADR-0006; the depth-deduped ZED variant stays #16's skeleton).
+  `to_alert` escalates a zone crossing its threshold to an `Alert` **tagged with
+  the zone's `source_id`** (a `Track` has none — per-track→camera attribution is
+  #32/#34), carrying a `zone_count` source `Event` so the shared `AlertThrottle`
+  (#42) de-dups per zone. Host-tested incl. the throttled Slack chain; live-track
+  e2e is the deferred on-device sign-off.
 - Immobility health alerts (#19): `fusion/health.py` `HealthMonitor.update_immobility`
   flags a track whose 2D centroid stays put longer than `immobility_seconds` —
   per-track anchor + dwell timer, movement beyond `move_threshold_px` resets it,
