@@ -26,7 +26,22 @@ inference:
     min_crop_confidence: 0.5
 
 fusion:
-  zones: []                   # see configs/default.yaml comments; define on-site
+  # Zone/fence format (#12). Authored on-site; validate with:
+  #   python -m overwatch.fusion.zones --validate <config.yaml>   (--example prints a template)
+  # space: image (pixel coords, default / mono RTSP) | ground (metres, ZED — needs
+  # the on-device depth<->ground calibration, target-side). source_id ties to one
+  # camera (optional in single-source V1). Example:
+  #   zones:
+  #     - name: pen-A
+  #       polygon: [[100, 80], [540, 80], [540, 400], [100, 400]]
+  #       # depth_min_m: 1.0   # optional ZED depth slab for count de-dup
+  #       # depth_max_m: 6.0
+  #   fences:
+  #     - name: north-gate
+  #       line: [[100, 80], [540, 80]]
+  #       crossing: out_to_in   # any | in_to_out | out_to_in (out = left of the directed line)
+  zones: []                   # define on-site (empty is flagged as must-tune)
+  fences: []                  # fence lines for crossing detection (#20)
   health:
     immobility_seconds: 600   # placeholder: flag if stationary this long
     lameness_score_threshold: 0.6
