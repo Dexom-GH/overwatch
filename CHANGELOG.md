@@ -21,6 +21,13 @@ All notable changes to Overwatch are recorded here. Format follows
 - Release infrastructure (gated): CI workflow (host lint/type/tests), manual
   draft-release workflow, CalVer single-sourced version, gated on-device deploy
   script.
+- Immobility health alerts (#19): `fusion/health.py` `HealthMonitor.update_immobility`
+  flags a track whose 2D centroid stays put longer than `immobility_seconds` —
+  per-track anchor + dwell timer, movement beyond `move_threshold_px` resets it,
+  one `HealthSignal` per immobile episode. **Mono-capable** (ADR-0006, no depth).
+  `to_alert` maps it to an `Alert` through the shared `SlackAlertSink` (#20). Host-
+  tested incl. movement-reset and once-per-episode emission; live-track e2e is the
+  deferred on-device sign-off. (Lameness stays deferred to V2/#22.)
 - Fence-crossing alerts (#20): `fusion/events.py` `EventDetector` turns the track
   stream into fence-crossing `Event`s (per-track centroid history over the
   `fusion/zones.py` directed-crossing geometry, honouring each `FenceLine.crossing`
