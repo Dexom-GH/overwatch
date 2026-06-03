@@ -12,6 +12,12 @@ bus:
   url_env: null
 
 capture:
+  # V1 single-ZED form (kept for backward-compat, #30) — normalizes internally to
+  # a one-element `sources` list. Multi-source (ADR-0006) uses the list form:
+  #   sources:
+  #     - {type: zed,  source_id: zed-0, fps: 15}
+  #     - {type: rtsp, source_id: cam-n, fps: 10, url: "rtsp://host:554/stream",
+  #        cred_env: RTSP_CRED_CAM_N}   # creds resolve from env, NEVER in YAML (#41)
   source: zed                 # zed | (ip cameras deferred)
   source_id: zed-0
   fps: 15                     # V1 committed default; sustained target, confirm on-device vs power mode (#46)
