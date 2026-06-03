@@ -45,6 +45,16 @@ GPU runs — this gates #5/#6/#7 on-device validation and the live pipeline. Coo
 is not the limiter (idle ~58 °C). Only after a known-good, adequately rated supply
 is fitted should 15W → 20W + `jetson_clocks` be re-evaluated.
 
+**Update 2026-06-03 — new adapter fitted:** the **power-off is resolved** (#45) —
+a full FP32 TRT engine build + benchmark at `MODE_15W_4CORE` completed cleanly, no
+reset, board stable. **Residual:** under GPU load the device now reports *"system
+throttled due to over-current"* — it stays up but briefly caps clocks to hold the
+current budget (visible as p99 latency spikes: FP16 median 10 ms but p99 16 ms;
+FP32 median 28 ms but p99 35 ms; temps cool ~45 °C). So 15W is **stable but runs at
+the current limit** under inference load. Pinning `jetson_clocks` or moving to 20W
+raises draw further — only after confirming current headroom and that the supply
+is rated for transient peaks (not just steady 15W).
+
 ## Primary sensor — ZED 2i stereo camera
 
 | Property | Value |
