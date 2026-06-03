@@ -12,7 +12,7 @@ description = "Edge-AI farm monitoring (animals: counting, vision-only ID, healt
 readme = "README.md"
 # Target is Jetson / Python 3.8 — keep all code 3.8-compatible.
 requires-python = ">=3.8"
-license = { text = "Proprietary" }
+license = { text = "AGPL-3.0-or-later" }   # ADR-0007: non-commercial / AGPL / public
 
 # Host-installable runtime deps only. Target-only wheels (pyzed, the Jetson
 # torch wheel, DeepStream bindings) are NOT here — they go in
