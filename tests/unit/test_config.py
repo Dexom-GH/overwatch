@@ -132,6 +132,55 @@ def test_rejects_zero_rate_window():
         validate_config(data)
 
 
+# --- multi-source RTSP credentials via env (#30) ---------------------------
+
+def _data_with_rtsp():
+    d = _valid_data()
+    d["capture"] = {
+        "sources": [
+            {"type": "zed", "source_id": "zed-0", "fps": 15},
+            {
+                "type": "rtsp", "source_id": "cam", "fps": 10,
+                "url": "rtsp://host:554/s", "cred_env": "RTSP_CRED_CAM",
+            },
+        ]
+    }
+    return d
+
+
+def test_rtsp_cred_resolves_from_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("OVERWATCH_CONFIG_DIR", str(tmp_path))
+    (tmp_path / "default.yaml").write_text(_yaml(_data_with_rtsp()))
+    monkeypatch.setenv("OVERWATCH_ENV_FILE", str(tmp_path / ".env.absent"))
+    monkeypatch.setenv("RTSP_CRED_CAM", "user:pass")
+    cfg = load_config()
+    rtsp = [s for s in cfg.capture.sources if s.type == "rtsp"][0]
+    assert rtsp.cred == "user:pass"
+
+
+def test_rtsp_cred_literal_in_yaml_rejected(tmp_path, monkeypatch):
+    monkeypatch.setenv("OVERWATCH_CONFIG_DIR", str(tmp_path))
+    data = _data_with_rtsp()
+    data["capture"]["sources"][1]["cred"] = "user:pass"  # secret in YAML — forbidden
+    (tmp_path / "default.yaml").write_text(_yaml(data))
+    monkeypatch.setenv("OVERWATCH_ENV_FILE", str(tmp_path / ".env.absent"))
+    with pytest.raises(ConfigError) as exc:
+        load_config()
+    assert "cred" in str(exc.value).lower()
+
+
+def test_validate_secrets_requires_rtsp_cred(tmp_path, monkeypatch):
+    monkeypatch.setenv("OVERWATCH_CONFIG_DIR", str(tmp_path))
+    (tmp_path / "default.yaml").write_text(_yaml(_data_with_rtsp()))
+    monkeypatch.setenv("OVERWATCH_ENV_FILE", str(tmp_path / ".env.absent"))
+    monkeypatch.delenv("RTSP_CRED_CAM", raising=False)
+    monkeypatch.setenv("SLACK_WEBHOOK", "x")  # isolate: slack secret present
+    cfg = load_config()
+    with pytest.raises(ConfigError) as exc:
+        validate_secrets(cfg)
+    assert "RTSP_CRED_CAM" in str(exc.value)
+
+
 # --- EventStore retention (#40) --------------------------------------------
 
 def test_store_retention_defaults():
@@ -183,7 +232,7 @@ def test_sqlite_store_requires_path():
 def test_must_tune_fields_lists_expected_paths():
     cfg = validate_config(_valid_data())
     paths = cfg.must_tune_fields()
-    assert "capture.fps" in paths
+    assert "capture.sources.0.fps" in paths  # fps is now per-source (#30)
     assert "fusion.health.immobility_seconds" in paths
     assert "inference.reid.min_crop_confidence" in paths
 

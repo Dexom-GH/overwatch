@@ -10,9 +10,10 @@ Target code — kept Python 3.8-compatible. The bus/store fields follow ADR-0001
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from typing_extensions import Annotated  # typing.Annotated is 3.9+; target is 3.8
 
 # Fields whose defaults are placeholders that MUST be confirmed/tuned on-device.
 _MUST_TUNE: Dict[str, Any] = {"must_tune": True}
@@ -40,10 +41,87 @@ class BusConfig(_Strict):
         return self
 
 
-class CaptureConfig(_Strict):
-    source: Literal["zed"]
+class ZedSourceConfig(_Strict):
+    """A ZED RGB+depth source (the V1 spine)."""
+
+    type: Literal["zed"] = "zed"
     source_id: str
     fps: int = Field(gt=0, json_schema_extra=_MUST_TUNE)
+
+
+class RtspSourceConfig(_Strict):
+    """An RTSP camera source (multi-source, ADR-0006; #30).
+
+    ``url`` carries NO credentials — they resolve from the env var named by
+    ``cred_env`` (mirrors ``SlackConfig.webhook_env``). ``cred`` is filled in by
+    the loader from that env var; a literal ``cred`` in YAML is rejected (#41).
+    """
+
+    type: Literal["rtsp"]
+    source_id: str
+    url: str
+    fps: int = Field(gt=0, json_schema_extra=_MUST_TUNE)
+    cred_env: Optional[str] = None
+    cred: Optional[str] = None
+
+
+# Discriminated on ``type`` so a bad/missing type fails fast with a clear error.
+SourceConfig = Annotated[
+    Union[ZedSourceConfig, RtspSourceConfig], Field(discriminator="type")
+]
+
+
+class CaptureConfig(_Strict):
+    """A list of typed capture sources (#30).
+
+    Backward-compat (decided in #30): the legacy scalar form
+    ``{source, source_id, fps}`` is normalized to a one-element ``sources`` list,
+    so the shipped single-ZED ``default.yaml`` and existing consumers
+    (``cfg.capture.source_id`` / ``.fps``) keep working unchanged.
+    """
+
+    sources: List[SourceConfig]
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_legacy_scalar(cls, data: Any) -> Any:
+        if isinstance(data, dict) and "sources" not in data:
+            legacy: Dict[str, Any] = {"type": data.get("source", "zed")}
+            for key in ("source_id", "fps"):
+                if key in data:
+                    legacy[key] = data[key]
+            rest = {
+                k: v for k, v in data.items() if k not in ("source", "source_id", "fps")
+            }
+            rest["sources"] = [legacy]
+            return rest
+        return data
+
+    @model_validator(mode="after")
+    def _check_sources(self) -> "CaptureConfig":
+        if not self.sources:
+            raise ValueError("capture.sources must list at least one source")
+        ids = [s.source_id for s in self.sources]
+        if len(set(ids)) != len(ids):
+            raise ValueError("capture source_id values must be unique: {}".format(ids))
+        return self
+
+    # Compat accessors so single-source consumers need not change.
+    @property
+    def primary(self) -> "Union[ZedSourceConfig, RtspSourceConfig]":
+        return self.sources[0]
+
+    @property
+    def source_id(self) -> str:
+        return self.primary.source_id
+
+    @property
+    def fps(self) -> int:
+        return self.primary.fps
+
+    @property
+    def source(self) -> str:
+        return self.primary.type
 
 
 class ReidConfig(_Strict):
@@ -198,6 +276,10 @@ class AppConfig(_Strict):
         it does not check whether a value has since been changed from its default.
         """
         paths = _collect_must_tune(self)
+        # Per-source fps carries the must-tune marker, but it lives in a list (which
+        # _collect_must_tune does not recurse), so surface each source's fps here.
+        for i in range(len(self.capture.sources)):
+            paths.append("capture.sources.{}.fps".format(i))
         if not self.fusion.zones:
             paths.append("fusion.zones")
         return paths

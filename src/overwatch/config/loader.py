@@ -27,7 +27,12 @@ from typing import Any, Dict, Optional
 import yaml
 from dotenv import dotenv_values, find_dotenv
 
-from overwatch.config.schema import AppConfig, ConfigError, validate_config
+from overwatch.config.schema import (
+    AppConfig,
+    ConfigError,
+    RtspSourceConfig,
+    validate_config,
+)
 
 log = logging.getLogger("overwatch.config")
 
@@ -72,8 +77,12 @@ def validate_secrets(cfg: AppConfig) -> None:
         missing.append(
             "{} (output.slack.webhook_env)".format(cfg.output.slack.webhook_env)
         )
-    # Per-camera RTSP credentials become required here once multi-source capture
-    # (#30) defines cameras; nothing to require in the ZED-only V1 default.
+    # Per-camera RTSP credentials (#30): required when a source names a cred_env.
+    for src in cfg.capture.sources:
+        if isinstance(src, RtspSourceConfig) and src.cred_env and src.cred is None:
+            missing.append(
+                "{} (capture source '{}')".format(src.cred_env, src.source_id)
+            )
     if missing:
         raise ConfigError(
             "Missing required secret(s) — set them in the environment or .env "
@@ -140,6 +149,12 @@ def _reject_yaml_secrets(data: Dict[str, Any]) -> None:
             node = node[part]
         if node is not None:
             offenders.append(path)
+    # Per-source RTSP credentials (#30) live in a list — scan each for a literal cred.
+    capture = data.get("capture")
+    if isinstance(capture, dict):
+        for i, src in enumerate(capture.get("sources", []) or []):
+            if isinstance(src, dict) and src.get("cred") is not None:
+                offenders.append("capture.sources.{}.cred".format(i))
     if offenders:
         raise ConfigError(
             "Secret(s) must not be set in YAML — provide them via the environment "
@@ -160,8 +175,15 @@ def _overlay_env(data: Dict[str, Any], env: Dict[str, str]) -> None:
             slack["webhook"] = env[webhook_env]
 
     capture = data.get("capture")
-    if isinstance(capture, dict) and "ZED_SOURCE_ID" in env:
-        capture["source_id"] = env["ZED_SOURCE_ID"]
+    if isinstance(capture, dict):
+        if "ZED_SOURCE_ID" in env:
+            capture["source_id"] = env["ZED_SOURCE_ID"]
+        # Resolve each RTSP source's credential from the env var it names (#30).
+        for src in capture.get("sources", []) or []:
+            if isinstance(src, dict) and src.get("type") == "rtsp":
+                cred_env = src.get("cred_env")
+                if isinstance(cred_env, str) and cred_env in env:
+                    src["cred"] = env[cred_env]
 
 
 __all__ = ["load_config", "validate_secrets"]
