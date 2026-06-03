@@ -101,9 +101,21 @@ class StoreConfig(_Strict):
         return self
 
 
+class ThrottleConfig(_Strict):
+    """Alert de-dup / rate-limit knobs (#42); see output/throttle.py.
+
+    ``cooldown_seconds`` 0 disables de-dup; ``max_per_window`` null = unrate-limited.
+    """
+
+    cooldown_seconds: float = Field(default=60.0, ge=0.0)
+    max_per_window: Optional[int] = Field(default=None, gt=0)
+    rate_window_seconds: float = Field(default=60.0, gt=0.0)
+
+
 class OutputConfig(_Strict):
     slack: SlackConfig
     store: StoreConfig
+    throttle: ThrottleConfig = Field(default_factory=ThrottleConfig)
 
 
 class AppConfig(_Strict):
