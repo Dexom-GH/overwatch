@@ -23,6 +23,7 @@ HOST_SAFE_MODULES = [
     "overwatch.capture.base",
     "overwatch.capture.zed_source",          # guarded import
     "overwatch.capture.recording",           # host-safe (record/replay harness)
+    "overwatch.capture.service",             # host-safe (capture spine driver)
     "overwatch.inference",
     "overwatch.inference.detection",
     "overwatch.inference.tracking",
