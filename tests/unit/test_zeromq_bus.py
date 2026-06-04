@@ -34,6 +34,44 @@ def test_inproc_round_trip(topic, message):
     assert_schema_equal(message, received[0])
 
 
+def test_concurrent_publishers_all_delivered():
+    # Multi-stage supervision fans out producers onto the one PUB socket (#38);
+    # the publish lock must keep concurrent sends atomic so none are lost/corrupted.
+    n_threads, per_thread = 8, 50
+    received = []
+    lock = threading.Lock()
+    done = threading.Event()
+
+    def handler(msg):
+        with lock:
+            received.append(msg)
+            if len(received) == n_threads * per_thread:
+                done.set()
+
+    bus = ZeroMqBus()
+    bus.subscribe(topics.FUSION_COUNT, handler)
+    bus.start()
+    try:
+        def publisher(tid):
+            for i in range(per_thread):
+                bus.publish(
+                    topics.FUSION_COUNT,
+                    schemas.ZoneCount(zone_id="z{}".format(tid), timestamp=float(i), count=i),
+                )
+
+        threads = [threading.Thread(target=publisher, args=(t,)) for t in range(n_threads)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert done.wait(timeout=5.0), "not all concurrent messages were delivered"
+    finally:
+        bus.close()
+
+    assert len(received) == n_threads * per_thread
+    assert all(isinstance(m, schemas.ZoneCount) for m in received)
+
+
 def test_handler_exception_does_not_kill_bus():
     good = []
     done = threading.Event()
