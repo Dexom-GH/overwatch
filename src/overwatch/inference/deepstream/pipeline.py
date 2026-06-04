@@ -1,66 +1,282 @@
-"""DeepStream pipeline graph builder — TARGET-ONLY skeleton.
+"""DeepStream pipeline graph builder — TARGET-ONLY (#15).
 
-Builds the continuous-load GStreamer pipeline:
+Builds the detect+track pipeline:
 
-    source(RGB) -> nvstreammux -> nvinfer(detect) -> nvtracker -> sink
+    filesrc -> h264parse -> nvv4l2decoder -> nvstreammux -> nvinfer -> nvtracker -> sink
 
-On-demand ReID and depth fusion are layered on via probes (``probes.py``) and
-the fusion stage — not as inline elements (ADR-0002 hybrid, ADR-0003). nvinfer/
-nvtracker are configured by the ``.txt`` files under ``configs/``.
+A probe on the nvtracker src pad publishes each tracked object as a
+:class:`~overwatch.bus.schemas.Track` on ``infer.track`` (see ``probes.py``).
+On-demand ReID and depth fusion layer on later via probes / the fusion stage —
+not as inline elements (ADR-0002 hybrid, ADR-0003). nvinfer / nvtracker are
+configured by the ``.txt`` files under ``configs/`` (the detector config is
+overridable so the #76 stock-YOLOv8 engine can drive the first demo, ahead of the
+fine-tuned model #77 and the live ZED source #54).
 
 GStreamer (``gi``) and ``pyds`` are Jetson-only; the import is guarded so this
-module can be imported (not run) on the host. See the ``deepstream-pipeline``
-skill.
+module imports (not runs) on the host. See the ``deepstream-pipeline`` skill.
 """
 
 from __future__ import annotations
 
-from typing import Any, Optional
+import configparser
+import logging
+from typing import Any, Callable, Optional
 
 try:
     import gi  # type: ignore
 
     gi.require_version("Gst", "1.0")
-    from gi.repository import Gst  # type: ignore
+    from gi.repository import GLib, Gst  # type: ignore
 
     _GST_AVAILABLE = True
     _GST_IMPORT_ERROR: Optional[Exception] = None
 except Exception as exc:  # pragma: no cover - host path
+    GLib = None  # type: ignore
     Gst = None  # type: ignore
     _GST_AVAILABLE = False
     _GST_IMPORT_ERROR = exc
 
+_LOG = logging.getLogger(__name__)
+_CONFIG_DIR = "src/overwatch/inference/deepstream/configs"
 
-class DeepStreamPipeline:
-    """Owns the GStreamer pipeline lifecycle. Skeleton — see module docstring."""
+# nvtracker element properties we set from the [tracker] config section.
+_TRACKER_INT_PROPS = {
+    "tracker-width", "tracker-height", "gpu-id",
+    "enable-batch-process", "enable-past-frame",
+}
+_TRACKER_STR_PROPS = {"ll-lib-file", "ll-config-file"}
+
+
+class DeepStreamPipeline:  # pragma: no cover - target-only (GStreamer/pyds)
+    """Owns the detect+track GStreamer pipeline lifecycle (#15).
+
+    ``pgie_config`` overrides the nvinfer config path (default: the authored
+    ``nvinfer_detector.txt``); pass the #76 stock-YOLOv8 config to demo before the
+    fine-tuned model lands. ``tracker_config`` is the ``[tracker]`` ini whose keys
+    are applied as nvtracker element properties.
+    """
 
     def __init__(
-        self, config_dir: str = "src/overwatch/inference/deepstream/configs"
+        self,
+        *,
+        pgie_config: "Optional[str]" = None,
+        tracker_config: "Optional[str]" = None,
+        config_dir: str = _CONFIG_DIR,
     ) -> None:
         if not _GST_AVAILABLE:
             raise RuntimeError(
                 "GStreamer/pyds unavailable — DeepStream is target-only (Jetson). "
                 "See docs/SOFTWARE_STACK.md and the deepstream-pipeline skill."
             ) from _GST_IMPORT_ERROR
-        self._config_dir = config_dir
+        self._pgie_config = pgie_config or (config_dir + "/nvinfer_detector.txt")
+        self._tracker_config = tracker_config or (config_dir + "/nvtracker.txt")
         self._pipeline: Optional[Any] = None
+        self._tracker: Optional[Any] = None
+        self._loop: Optional[Any] = None
 
-    def build(self) -> None:
-        # TODO: construct elements (nvstreammux, nvinfer, nvtracker, sink),
-        # link them, load nvinfer/nvtracker configs from config_dir.
-        raise NotImplementedError("DeepStreamPipeline.build")
+    def _mk(self, factory: str, name: str) -> "Any":
+        assert self._pipeline is not None
+        el = Gst.ElementFactory.make(factory, name)
+        if el is None:
+            raise RuntimeError("failed to create GStreamer element: {}".format(factory))
+        self._pipeline.add(el)
+        return el
 
-    def attach_probes(self) -> None:
-        # TODO: attach probes from probes.py (on-demand ReID trigger, depth tap).
-        raise NotImplementedError("DeepStreamPipeline.attach_probes")
+    def _configure_tracker(self, tracker: "Any") -> None:
+        parser = configparser.ConfigParser()
+        parser.optionxform = str  # type: ignore[method-assign,assignment]  # preserve hyphenated keys
+        parser.read(self._tracker_config)
+        if not parser.has_section("tracker"):
+            return
+        for key, raw in parser.items("tracker"):
+            # Some [tracker] keys (e.g. enable-batch-process / enable-past-frame) are
+            # deepstream-app / low-level-yml settings, NOT nvtracker element props —
+            # skip anything the element doesn't actually expose.
+            if tracker.find_property(key) is None:
+                continue
+            if key in _TRACKER_INT_PROPS:
+                tracker.set_property(key, int(raw))
+            elif key in _TRACKER_STR_PROPS:
+                tracker.set_property(key, raw)
+
+    def build(self, source_h264: str, *, width: int = 1280, height: int = 720) -> None:
+        """Construct + link the pipeline for an H.264 elementary-stream file source."""
+        Gst.init(None)
+        self._pipeline = Gst.Pipeline()
+
+        src = self._mk("filesrc", "src")
+        src.set_property("location", source_h264)
+        parse = self._mk("h264parse", "parse")
+        dec = self._mk("nvv4l2decoder", "dec")
+        mux = self._mk("nvstreammux", "mux")
+        mux.set_property("batch-size", 1)
+        mux.set_property("width", width)
+        mux.set_property("height", height)
+        mux.set_property("batched-push-timeout", 4000000)
+        pgie = self._mk("nvinfer", "pgie")
+        pgie.set_property("config-file-path", self._pgie_config)
+        tracker = self._mk("nvtracker", "tracker")
+        self._configure_tracker(tracker)
+        sink = self._mk("fakesink", "sink")
+        sink.set_property("sync", 0)
+
+        src.link(parse)
+        parse.link(dec)
+        dec.get_static_pad("src").link(mux.get_request_pad("sink_0"))
+        mux.link(pgie)
+        pgie.link(tracker)
+        tracker.link(sink)
+        self._tracker = tracker
+
+    def attach_probe(self, probe: "Callable[[Any, Any, Any], Any]") -> None:
+        """Attach ``probe`` to the nvtracker src pad (where Track metadata is final)."""
+        if self._tracker is None:
+            raise RuntimeError("build() must be called before attach_probe()")
+        self._tracker.get_static_pad("src").add_probe(Gst.PadProbeType.BUFFER, probe, None)
 
     def run(self) -> None:
-        # TODO: set PLAYING, run the GLib main loop, handle bus messages.
-        raise NotImplementedError("DeepStreamPipeline.run")
+        """PLAY and run the main loop until EOS / error."""
+        if self._pipeline is None:
+            raise RuntimeError("build() must be called before run()")
+        self._loop = GLib.MainLoop()
+        bus = self._pipeline.get_bus()
+        bus.add_signal_watch()
+        bus.connect("message", self._on_bus_message)
+        self._pipeline.set_state(Gst.State.PLAYING)
+        try:
+            self._loop.run()
+        finally:
+            self.stop()
+
+    def quit(self) -> None:
+        if self._loop is not None:
+            self._loop.quit()
+
+    def _on_bus_message(self, _bus: "Any", msg: "Any") -> bool:
+        t = msg.type
+        if t == Gst.MessageType.EOS:
+            _LOG.info("deepstream pipeline: EOS")
+            self.quit()
+        elif t == Gst.MessageType.ERROR:
+            err, dbg = msg.parse_error()
+            _LOG.error("deepstream pipeline error: %s (%s)", err, dbg)
+            self.quit()
+        return True
 
     def stop(self) -> None:
-        # TODO: set NULL, tear down.
-        raise NotImplementedError("DeepStreamPipeline.stop")
+        if self._pipeline is not None:
+            self._pipeline.set_state(Gst.State.NULL)
+
+
+def _demo(argv: "Optional[list]" = None) -> int:  # pragma: no cover - target-only
+    """On-device demo (#15 AC): detect+track -> Track on bus -> subscriber prints.
+
+    TARGET-ONLY. Wires a real bus, subscribes a printer to ``infer.track``, and
+    drives the pipeline with the #76 stock-YOLOv8 engine over a sample H.264 file.
+    Run on the Jetson, e.g.:
+      python -m overwatch.inference.deepstream.pipeline \
+        --pgie /srv/farmproject/yolo-spike/DeepStream-Yolo/config_infer_stock_yolov8n.txt \
+        --source /opt/nvidia/deepstream/deepstream/samples/streams/sample_720p.h264 \
+        --frames 150
+    """
+    import argparse
+    import queue
+    import time
+
+    from overwatch.bus import topics
+    from overwatch.bus.zeromq_bus import ZeroMqBus
+    from overwatch.inference.deepstream.probes import make_tracker_probe
+
+    ap = argparse.ArgumentParser(description="DeepStream detect+track demo (#15)")
+    ap.add_argument("--pgie", required=True, help="nvinfer config (e.g. #76 stock-YOLOv8)")
+    ap.add_argument("--tracker", default=None, help="nvtracker config (default: repo nvtracker.txt)")
+    ap.add_argument("--source", required=True, help="H.264 elementary-stream file")
+    ap.add_argument("--labels", default=None, help="labels.txt (class_id -> name)")
+    ap.add_argument("--frames", type=int, default=150, help="stop after N tracked frames")
+    ap.add_argument("--timeout", type=int, default=120, help="hard wall-clock stop (s)")
+    args = ap.parse_args(argv)
+
+    logging.basicConfig(level=logging.INFO)
+    labels = None
+    if args.labels:
+        with open(args.labels, encoding="utf-8") as f:
+            labels = [ln.strip() for ln in f if ln.strip()]
+
+    bus = ZeroMqBus(endpoint="inproc://overwatch-bus")
+    sub_seen: "dict" = {"ids": set(), "n": 0}
+
+    def _subscriber(track: "Any") -> None:  # runs on the bus dispatch thread
+        sub_seen["ids"].add(track.track_id)
+        sub_seen["n"] += 1
+        x1, y1, x2, y2 = track.bbox
+        if sub_seen["n"] <= 40 or sub_seen["n"] % 200 == 0:
+            print(
+                "infer.track[sub]: frame={} id={} {} conf={:.2f} bbox=({:.0f},{:.0f},{:.0f},{:.0f})".format(
+                    track.frame_id, track.track_id, track.class_name, track.confidence,
+                    x1, y1, x2, y2,
+                )
+            )
+
+    bus.subscribe(topics.INFER_TRACK, _subscriber)  # subscribe before start
+    bus.start()
+
+    pipe = DeepStreamPipeline(pgie_config=args.pgie, tracker_config=args.tracker)
+    pipe.build(args.source)
+
+    # Probe (streaming thread) only ENQUEUES — never touches the bus (ZMQ PUB is
+    # single-threaded; blocking the streaming thread stalls the pipeline).
+    q: "queue.Queue" = queue.Queue(maxsize=20000)
+
+    def _on_track(track: "Any") -> None:
+        try:
+            q.put_nowait(track)
+        except queue.Full:
+            pass
+
+    pipe.attach_probe(make_tracker_probe(_on_track, labels=labels))
+
+    pub: "dict" = {"n": 0, "frames": set(), "t_first": None, "t_last": None}
+
+    def _drain() -> bool:  # runs on the MAIN thread (GLib loop) -> single-producer publish
+        while True:
+            try:
+                track = q.get_nowait()
+            except queue.Empty:
+                break
+            bus.publish(topics.INFER_TRACK, track)
+            now = time.monotonic()
+            if pub["t_first"] is None:
+                pub["t_first"] = now
+            pub["t_last"] = now
+            pub["n"] += 1
+            pub["frames"].add(track.frame_id)
+        if len(pub["frames"]) >= args.frames:
+            pipe.quit()
+        return True  # keep the timer
+
+    GLib.timeout_add(50, _drain)
+    GLib.timeout_add_seconds(args.timeout, pipe.quit)  # hard safety stop — never hang
+
+    try:
+        pipe.run()
+        _drain()  # flush anything queued after the loop quit
+    finally:
+        bus.close()
+    nframes = len(pub["frames"])
+    fps = 0.0
+    if pub["t_first"] is not None and pub["t_last"] is not None and pub["t_last"] > pub["t_first"]:
+        fps = (nframes - 1) / (pub["t_last"] - pub["t_first"])
+    print(
+        "\n=== #15 RESULT === published {} Track msgs over {} frames at ~{:.1f} fps; "
+        "subscriber received {} (unique ids: {})".format(
+            pub["n"], nframes, fps, sub_seen["n"], sorted(sub_seen["ids"])[:20]
+        )
+    )
+    return 0
 
 
 __all__ = ["DeepStreamPipeline"]
+
+
+if __name__ == "__main__":  # pragma: no cover - target-only entrypoint
+    raise SystemExit(_demo())
