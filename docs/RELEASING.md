@@ -45,15 +45,18 @@ answered by *when* it was cut, not by API-stability semantics.
    `2026.6.0`). It checks the version matches `__version__`, builds the wheel/
    sdist, and creates a **draft** GitHub Release with notes + artifacts.
 6. **Review and Publish** the draft Release (this creates the `v2026.6.0` tag).
-7. **Deploy to the Jetson:** on the device, `bash scripts/target/deploy.sh
-   2026.6.0` (verify env → checkout tag → install → rebuild engines → restart →
-   smoke-check). See the script for the steps.
+7. **Deploy to the Jetson:** on the device (as an operator with `sudo`),
+   `bash scripts/target/deploy.sh 2026.6.0` — verify env → checkout tag → refresh
+   package + declared deps → rebuild engines → install the `overwatch.service`
+   systemd unit (disabled) → bounded smoke-check (#43). The unit is **installed but
+   not enabled**: enabling it + the live PLAYING/Slack runtime smoke-check is gated
+   on the supervised pipeline (#38) and tracked in #81.
 
 ## When to ungate
 
 Once V1 actually ships on-device and the flow is trusted, optionally:
 - enable the `push: tags: ["v*"]` trigger in `release.yml` for tag-driven releases,
-- flesh out `deploy.sh` (and consider a systemd unit + a self-hosted runner on the
-  device if you want push-button deploys).
+- `deploy.sh` + the `overwatch.service` systemd unit are in place (#43); consider a
+  self-hosted runner on the device if you want push-button deploys.
 
 Record any such change in ADR-0004.
