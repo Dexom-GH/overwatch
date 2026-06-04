@@ -10,10 +10,10 @@ unit tests — no import guard needed (unlike pyzed/torch).
 Lifecycle: register all ``subscribe()`` handlers BEFORE ``start()``. The SUB
 socket is owned exclusively by the dispatch thread; subscriptions are not mutated
 cross-thread in V1. ``start()`` settles briefly to cover the PUB/SUB slow-joiner
-so the first ``publish()`` is delivered. ``publish()`` sends on the shared PUB socket from the caller's thread; ZeroMQ
-sockets are not thread-safe, so in V1's single-process design publish from a
-single producer thread per process (guard with a lock if producers are ever
-fanned out).
+so the first ``publish()`` is delivered. ``publish()`` sends on the shared PUB
+socket from the caller's thread; ZeroMQ sockets are not thread-safe, so sends are
+serialized by an internal lock — supervised multi-stage pipelines fan out
+producers (capture / inference / fusion publish from their own threads, #38).
 
 Out of scope here (separate issues): HWM/CONFLATE backpressure policy (#39 — wire
 it via the ``socket_options`` seam); a tcp + XPUB/XSUB topology for cross-process
@@ -56,6 +56,10 @@ class ZeroMqBus(MessageBus):
         self._thread = None  # type: Optional[threading.Thread]
         self._stop = threading.Event()
         self._ready = threading.Event()
+        # Serialize sends: the PUB socket is not thread-safe, and a supervised
+        # multi-stage pipeline fans out producers (capture / inference / fusion all
+        # publish from their own threads, #38). One lock keeps sends atomic.
+        self._pub_lock = threading.Lock()
 
     def subscribe(self, topic: str, handler: Handler) -> None:
         if self._thread is not None:
@@ -66,7 +70,10 @@ class ZeroMqBus(MessageBus):
         if self._pub is None:
             raise RuntimeError("publish() called before start()")
         frames = serialization.encode(message)
-        self._pub.send_multipart([topic.encode("utf-8")] + frames)
+        # Lock the send: multiple stage threads may publish concurrently (#38) and
+        # ZeroMQ sockets are not thread-safe.
+        with self._pub_lock:
+            self._pub.send_multipart([topic.encode("utf-8")] + frames)
 
     def start(self) -> None:
         if self._thread is not None:

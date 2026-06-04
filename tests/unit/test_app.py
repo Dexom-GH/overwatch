@@ -11,12 +11,20 @@ import threading
 import numpy as np
 import pytest
 
-from overwatch.app import CaptureStage, _build_source, _build_stages, run_pipeline
+from overwatch.app import (
+    CaptureStage,
+    FusionStage,
+    InferenceStage,
+    OutputStage,
+    _build_source,
+    _build_stages,
+    run_pipeline,
+)
 from overwatch.bus import topics
-from overwatch.bus.schemas import Frame
+from overwatch.bus.schemas import Alert, Frame, Track
 from overwatch.capture.base import CaptureSource
 from overwatch.capture.rtsp_source import RtspSource
-from overwatch.config.schema import RtspSourceConfig
+from overwatch.config.schema import AppConfig, RtspSourceConfig
 
 
 def _frame(fid):
@@ -45,9 +53,48 @@ class _ListSource(CaptureSource):
 class _FakeBus:
     def __init__(self):
         self.published = []
+        self.handlers = {}
 
     def publish(self, topic, message):
         self.published.append((topic, message))
+
+    def subscribe(self, topic, handler):
+        self.handlers.setdefault(topic, []).append(handler)
+
+    def deliver(self, topic, message):  # test helper: simulate bus delivery
+        for h in self.handlers.get(topic, []):
+            h(message)
+
+
+def _full_cfg(source_id="cam-1"):
+    """A validated AppConfig with an RTSP source + one fence (host-constructible)."""
+    return AppConfig.model_validate(
+        {
+            "bus": {"transport": "zeromq", "endpoint": "inproc://test"},
+            "capture": {"sources": [
+                {"type": "rtsp", "source_id": source_id, "url": "rtsp://h/s", "fps": 10}
+            ]},
+            "inference": {
+                "detector_config": "nvinfer.txt", "tracker_config": "nvtracker.txt",
+                "reid": {"engine": "e.engine", "refresh_seconds": 30, "min_crop_confidence": 0.5},
+            },
+            "fusion": {
+                "zones": [],
+                "fences": [{"name": "gate", "line": [[0, 10], [20, 10]], "space": "image"}],
+                "health": {"immobility_seconds": 600, "lameness_score_threshold": 0.6},
+                "events": {"fence_zones": []},
+            },
+            "output": {
+                "slack": {"webhook_env": "SLACK_WEBHOOK", "min_severity": "warning"},
+                "store": {"backend": "sqlite", "path": "data/x.db"},
+            },
+        }
+    )
+
+
+def _track(track_id, cx, cy, frame_id):
+    return Track(track_id=track_id, frame_id=frame_id, bbox=(cx - 1, cy - 1, cx + 1, cy + 1),
+                 class_id=0, class_name="sheep", confidence=0.9)
 
 
 class TestCaptureStage:
@@ -87,14 +134,55 @@ class TestBuildStages:
         with pytest.raises(ValueError, match="unknown capture source type"):
             _build_source(SimpleNamespace(type="bogus"))
 
-    def test_build_stages_one_named_stage_per_source(self):
-        from types import SimpleNamespace
+    def test_build_stages_wires_full_pipeline_in_order(self):
+        stages = _build_stages(_full_cfg(), _FakeBus())
+        # capture -> inference -> fusion -> output (#38)
+        assert [s.name for s in stages] == ["capture:cam-1", "inference", "fusion", "output"]
 
-        cfg = SimpleNamespace(  # _build_stages only reads cfg.capture.sources
-            capture=SimpleNamespace(sources=[self._rtsp("cam-1"), self._rtsp("cam-2")])
-        )
-        stages = _build_stages(cfg, _FakeBus())
-        assert [s.name for s in stages] == ["capture:cam-1", "capture:cam-2"]
+
+class TestFusionStage:
+    def test_subscribes_to_infer_track_and_publishes_alerts(self):
+        bus = _FakeBus()
+        stage = FusionStage(bus, _full_cfg())
+        assert topics.INFER_TRACK in bus.handlers  # subscribed in __init__
+        # a track crossing the configured fence (below -> above) -> an alert
+        bus.deliver(topics.INFER_TRACK, _track(1, 10, 5, frame_id=0))
+        bus.deliver(topics.INFER_TRACK, _track(1, 10, 15, frame_id=1))
+        stop = threading.Event()
+        stop.set()
+        stage.run(stop)  # flushes the trailing frame
+        alert_topics = [t for t, _ in bus.published]
+        assert topics.OUTPUT_ALERT in alert_topics
+
+
+class TestOutputStage:
+    def test_subscribes_to_output_alert_and_delivers_via_sink(self):
+        bus = _FakeBus()
+        delivered = []
+
+        class _Sink:
+            def send(self, alert):
+                delivered.append(alert)
+
+        OutputStage(bus, _full_cfg(), sink=_Sink())
+        assert topics.OUTPUT_ALERT in bus.handlers
+        alert = Alert(timestamp=1.0, severity="warning", title="t", message="m")
+        bus.deliver(topics.OUTPUT_ALERT, alert)
+        assert delivered == [alert]
+
+    def test_run_returns_on_stop(self):
+        bus = _FakeBus()
+        stage = OutputStage(bus, _full_cfg(), sink=type("S", (), {"send": lambda self, a: None})())
+        stop = threading.Event()
+        stop.set()
+        stage.run(stop)  # returns immediately when already stopped
+
+
+class TestInferenceStage:
+    def test_name_and_host_construction(self):
+        # __init__ must not touch gi/pyds (deferred to run) so it builds on host.
+        stage = InferenceStage(_FakeBus(), pgie_config="p.txt", source="rtsp://h/s")
+        assert stage.name == "inference"
 
 
 class _RecordingSupervisor:

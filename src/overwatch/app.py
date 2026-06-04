@@ -60,6 +60,149 @@ class CaptureStage(Stage):
         _LOG.info("capture stage stopped after %d frames", n)
 
 
+class FusionStage(Stage):
+    """Subscribes ``infer.track``, runs the mono fusion rules, publishes ``output.alert``.
+
+    Host-runnable: wraps the #79 :class:`~overwatch.fusion.mono_alerts.MonoAlertFanout`
+    (fence #20 / immobility #19 / count #33). Subscribes in ``__init__`` (before the
+    supervisor starts the bus — the ZeroMqBus contract is subscribe-before-start);
+    the fanout runs on the bus dispatch thread and publishes alerts via the locked
+    bus. ``run`` blocks until shutdown, then flushes the trailing frame.
+    """
+
+    def __init__(self, bus: "MessageBus", cfg: "AppConfig") -> None:
+        from overwatch.bus import topics
+        from overwatch.fusion.mono_alerts import MonoAlertFanout
+
+        self._bus = bus
+        # Zone count thresholds are not in the Zone schema yet (follow-up); read
+        # defensively so fence + immobility alerts work today, zone-count later.
+        thresholds = {}
+        for z in cfg.fusion.zones:
+            ct = getattr(z, "count_threshold", None)
+            if ct is not None:
+                thresholds[z.name] = ct
+        self._fanout = MonoAlertFanout(
+            self._publish_alert,
+            fences=cfg.fusion.fences,
+            zones=cfg.fusion.zones,
+            zone_thresholds=thresholds,
+            immobility_seconds=cfg.fusion.health.immobility_seconds,
+        )
+        bus.subscribe(topics.INFER_TRACK, self._fanout.on_track)
+
+    @property
+    def name(self) -> str:
+        return "fusion"
+
+    def _publish_alert(self, alert: "Any") -> None:
+        from overwatch.bus import topics
+
+        self._bus.publish(topics.OUTPUT_ALERT, alert)
+
+    def run(self, stop: "threading.Event") -> None:
+        stop.wait()
+        self._fanout.flush()
+
+
+class OutputStage(Stage):
+    """Subscribes ``output.alert`` and delivers via the throttled Slack sink.
+
+    Host-runnable. Subscribes in ``__init__``; delivery runs on the bus dispatch
+    thread. ``run`` blocks until shutdown.
+    """
+
+    def __init__(
+        self, bus: "MessageBus", cfg: "AppConfig", *, sink: "Optional[Any]" = None
+    ) -> None:
+        from overwatch.bus import topics
+
+        self._bus = bus
+        if sink is None:
+            from overwatch.output.slack import SlackAlertSink, ThrottledAlertSink
+            from overwatch.output.throttle import AlertThrottle
+
+            throttle = AlertThrottle.from_config(cfg.output.throttle)
+            sink = ThrottledAlertSink(SlackAlertSink(cfg.output.slack.webhook or ""), throttle)
+        self._sink = sink
+        bus.subscribe(topics.OUTPUT_ALERT, self._sink.send)
+
+    @property
+    def name(self) -> str:
+        return "output"
+
+    def run(self, stop: "threading.Event") -> None:
+        stop.wait()
+
+
+class InferenceStage(Stage):
+    """Runs the DeepStream detect+track pipeline, publishing ``infer.track``. TARGET-ONLY.
+
+    Wraps the #15 ``DeepStreamPipeline`` + tracker probe. The probe enqueues tracks
+    (non-blocking, streaming thread); ``run`` drains the queue and publishes on the
+    GLib main loop (this stage's thread) via the locked bus. Heavy imports
+    (gi/pyds/DeepStream) are deferred to ``run`` so this module imports on the host.
+    """
+
+    def __init__(
+        self,
+        bus: "MessageBus",
+        *,
+        pgie_config: str,
+        source: str,
+        tracker_config: "Optional[str]" = None,
+        labels: "Optional[List[str]]" = None,
+    ) -> None:
+        self._bus = bus
+        self._pgie_config = pgie_config
+        self._source = source
+        self._tracker_config = tracker_config
+        self._labels = labels
+
+    @property
+    def name(self) -> str:
+        return "inference"
+
+    def run(self, stop: "threading.Event") -> None:  # pragma: no cover - target-only
+        import queue
+
+        from gi.repository import GLib  # type: ignore
+
+        from overwatch.bus import topics
+        from overwatch.inference.deepstream.pipeline import DeepStreamPipeline
+        from overwatch.inference.deepstream.probes import make_tracker_probe
+
+        pipe = DeepStreamPipeline(
+            pgie_config=self._pgie_config, tracker_config=self._tracker_config
+        )
+        pipe.build(self._source)
+        q: "queue.Queue" = queue.Queue(maxsize=20000)
+        pipe.attach_probe(
+            make_tracker_probe(
+                lambda t: q.put_nowait(t) if not q.full() else None, labels=self._labels
+            )
+        )
+
+        def _drain() -> bool:
+            while True:
+                try:
+                    track = q.get_nowait()
+                except queue.Empty:
+                    break
+                self._bus.publish(topics.INFER_TRACK, track)
+            return True
+
+        GLib.timeout_add(50, _drain)
+
+        def _watch_stop() -> None:
+            stop.wait()
+            pipe.quit()
+
+        threading.Thread(target=_watch_stop, daemon=True).start()
+        pipe.run()  # blocks on the GLib loop until EOS / stop
+        _drain()
+
+
 def _build_bus(cfg: "AppConfig") -> "MessageBus":
     """Construct the configured transport (ADR-0001 hybrid: ZeroMQ default)."""
     if cfg.bus.transport == "zeromq":
@@ -99,16 +242,35 @@ def _build_source(src_cfg: "Any") -> "CaptureSource":
 def _build_stages(cfg: "AppConfig", bus: "MessageBus") -> "List[Stage]":
     """Construct the runnable stages in pipeline order.
 
-    One :class:`CaptureStage` per configured source (ADR-0006 multi-source) —
-    named ``capture:<source_id>`` so each is a distinct, supervisable stage. The
-    ``rtsp`` sources are host-runnable; a ``zed`` source makes this target-only
-    (pyzed). Inference (#15), fusion, and output stages are appended here — in
-    order — as they land.
+    Full pipeline order (#38): capture -> inference -> fusion -> output. One
+    :class:`CaptureStage` per configured source (ADR-0006), then a single
+    :class:`InferenceStage` (DeepStream; multi-source nvstreammux batching is #32),
+    :class:`FusionStage`, and :class:`OutputStage`. The ``rtsp``/fusion/output
+    stages are host-runnable; ``zed`` capture and the live InferenceStage run are
+    target-only (pyzed / DeepStream).
     """
     stages: "List[Stage]" = []
+    # capture (one per source; ZED is target-only/import-guarded)
     for src_cfg in cfg.capture.sources:
         source = _build_source(src_cfg)
         stages.append(CaptureStage(source, bus, name="capture:" + src_cfg.source_id))
+
+    # inference -> fusion -> output, in pipeline order. One InferenceStage drives
+    # the DeepStream pipeline; multi-source nvstreammux batching is #32. The
+    # inference source is the first source's URL (RTSP); a ZED source feeds
+    # DeepStream via the #6 seam (deferred) — source_id is a placeholder until then.
+    src0 = cfg.capture.sources[0]
+    infer_source = getattr(src0, "url", None) or src0.source_id
+    stages.append(
+        InferenceStage(
+            bus,
+            pgie_config=cfg.inference.detector_config,
+            source=infer_source,
+            tracker_config=cfg.inference.tracker_config,
+        )
+    )
+    stages.append(FusionStage(bus, cfg))
+    stages.append(OutputStage(bus, cfg))
     return stages
 
 

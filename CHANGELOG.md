@@ -31,6 +31,16 @@ All notable changes to Overwatch are recorded here. Format follows
   + declared deps import and the config loads at the deployed ref (verified on-device).
   The unit is installed-but-disabled; enabling it + the live PLAYING/Slack runtime
   smoke-check is gated on the supervised pipeline (#38) and split into #81.
+- Pipeline orchestration: full chain wired into the supervisor (#38). `app.py`
+  gains `InferenceStage` (target-only; wraps the #15 DeepStream pipeline, publishes
+  `infer.track`), `FusionStage` (subscribes `infer.track`, runs the #79
+  `MonoAlertFanout`, publishes `output.alert`), and `OutputStage` (delivers via the
+  throttled Slack sink); `_build_stages` now wires capture → inference → fusion →
+  output in order (the `Supervisor`/`run_pipeline` spine already handled ordering,
+  bounded restart, and clean SIGTERM shutdown). `ZeroMqBus.publish` is now guarded
+  by a lock so multiple stage threads can publish on the shared PUB socket safely
+  (multi-producer). Host-tested (stage wiring, subscribe/publish, concurrent
+  publishers); the live on-device supervised run is the sign-off carried by #81.
 - First mono end-to-end on-device (#79): `fusion/mono_alerts.py` bridges the live
   per-object `infer.track` stream to the per-frame fusion rules. `FrameAssembler`
   reassembles per-frame `Track` lists (group by `frame_id`, flush on frame advance
