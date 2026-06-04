@@ -30,6 +30,7 @@ forward a documented move rather than a silent one.
 | **RFID collar tags** | Hardware/ID approach deferred; V1 ID is vision-only. |
 | **Plant & environmental monitoring** | The broader farm-overwatch scope; V1 is animals only. |
 | **Lameness scoring (depth + pose)** | Deferred to V2 (2026-06-02): heaviest health signal, placeholder thresholds, needs pose-model provenance. V1 health = immobility + fence-crossing. Tracked in issue #22. |
+| **Tier-3 detector (rabbit, guinea_pig)** | Deferred to V2 (2026-06-04, spike #35): no farm-relevant public detection data (guinea pig has none even for bootstrap), ~1 focused person-week to capture+label+train, and the P0 demo spine runs on Tier 1. V1 keeps only **low-cost data capture now** (record pen footage) so V2 labeling isn't gated on re-capture. V1 farm detector (#77) narrows to **3-class** (sheep/goat/poultry). See `docs/research/2026-06-04-tier3-detection-dataset-feasibility.md`. |
 
 ### Forward-port notes
 
@@ -42,6 +43,19 @@ forward a documented move rather than a silent one.
   honest boundary record; tracked in **issue #22** (relabeled `v2`, removed from
   the V1 milestone, kept open as a V2 backlog item). This is the reverse of the
   `# V2→V1:` convention — a documented V1→V2 move, not a silent scope cut.
+
+- **2026-06-04 — Tier-3 detector (rabbit, guinea_pig) DEFERRED V1→V2 (spike #35):**
+  The feasibility spike (`docs/research/2026-06-04-tier3-detection-dataset-feasibility.md`)
+  resolves the `animals.yaml` "in V1 only if labeling lands in time" condition to
+  **demoted to V2**. Drivers: no farm-relevant public detection data (guinea pig
+  has none even to bootstrap a pre-labeler), a realistic **~1 focused person-week**
+  to capture + label (model-assisted, human-in-the-loop in CVAT) + iterate, and the
+  P0 demo spine (#16/#84) runs on **Tier 1** and is not blocked by Tier 3. V1 retains
+  only a **low-cost capture chore** (record pen footage now, label in V2) so the V2
+  work isn't gated on re-capture. **Consequence:** the V1 farm detector (#77) ships
+  **3-class** (sheep/goat/poultry). Like the lameness move, this is a documented
+  V1→V2 boundary change, not a silent cut; `animals.yaml` keeps the canonical
+  rabbit/guinea_pig ids (we own the map for V2). Follow-ons proposed off #35.
 
 - **2026-06-02 — Multi-camera capture (3-4 mono RTSP/IP, `v2-fwd`, P1):** IP/RTSP
   cameras are pulled forward so V1 covers a multi-pen / multi-angle farm: **3-4
@@ -84,7 +98,9 @@ forward a documented move rather than a silent one.
   demo spine (#15 / #16); Tier 2 (poultry — loosely COCO "bird"); **Tier 3
   (rabbit, guinea_pig) have essentially no public detection datasets** and are
   **data-gated behind #35** — in V1 only if bespoke labeling lands in time,
-  otherwise demoted to V2 (a documented boundary move, not silent). Custom
+  otherwise demoted to V2 (a documented boundary move, not silent). **RESOLVED
+  2026-06-04 (spike #35): demoted to V2** (see the forward-port note above + the
+  "NOT in scope" table); #77 narrows to 3-class for V1. Custom
   detector fine-tuning is required regardless (COCO omits goat/rabbit/guinea pig).
   `configs/animals.yaml` carries the `tier:` field; detector-model pick deferred
   pending **ADR-0005 (#27)** licensing + **ADR-0006 (#29)** multi-camera.
