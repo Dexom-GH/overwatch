@@ -21,6 +21,19 @@ All notable changes to Overwatch are recorded here. Format follows
 - Release infrastructure (gated): CI workflow (host lint/type/tests), manual
   draft-release workflow, CalVer single-sourced version, gated on-device deploy
   script.
+- DeepStream detect+track -> `infer.track` (#15): `inference/deepstream/pipeline.py`
+  builds decode -> nvstreammux -> nvinfer -> nvtracker, and a tracker-pad probe
+  (`probes.py`) maps each `NvDsObjectMeta` to a `schemas.Track` (incl. the
+  `(l,t,w,h)->(x1,y1,x2,y2)` bbox conversion) published on `infer.track`. The
+  probe only enqueues (non-blocking, streaming thread); a main-thread drain is the
+  single bus producer (ZMQ PUB is single-threaded). The metadata->Track mapping is
+  host-unit-tested; **on-device verified** on the Jetson with the #76 stock-YOLOv8
+  FP16 engine over a non-ZED sample source: stable `track_id` across frames,
+  ~56 fps single-stream, Track messages received by a bus subscriber. ZED-RGB
+  source (#54) and the 5-class model (#77) are follow-on swaps. Two on-device
+  gotchas recorded: nvtracker needs `LD_PRELOAD=libgomp.so.1` (static-TLS), and the
+  DeepStream-Yolo engine builder names the engine `model_b1_gpu0_fp16.engine`
+  (point `model-engine-file` at it to reuse, not rebuild).
 - Mono 2D zone counting -> alert (#33): `fusion/zone_counting.py`
   `ZoneCounter.count_2d` counts tracks whose bbox centroid falls inside each
   configured `Zone` (image-plane `point_in_polygon`, **no depth de-dup** — the
