@@ -88,6 +88,17 @@ forward a documented move rather than a silent one.
   detector fine-tuning is required regardless (COCO omits goat/rabbit/guinea pig).
   `configs/animals.yaml` carries the `tier:` field; detector-model pick deferred
   pending **ADR-0005 (#27)** licensing + **ADR-0006 (#29)** multi-camera.
+- **2026-06-04 — ZED/depth path DEFERRED; RTSP/mono path is the first on-device
+  demo (PO-approved):** the ZED 2i is not yet cabled to a USB-3 port (#54), so the
+  depth differentiator and its dependents — first ZED-depth e2e demo (#16),
+  ZED→DeepStream depth-bbox seam (#6), depth de-dup feasibility (#9), ZED capture
+  spine sign-off (#14), ZED record/replay (#11), depth↔ground calibration (#66) —
+  are **`status:blocked` on #54, still in V1 scope, not dropped.** They resume when
+  the cable lands. Meanwhile the **live RTSP/mono demo (#84)** — live camera →
+  DeepStream detect+track (stock yolov8n, #76) → 2D count/fence/immobility → real
+  Slack alert under systemd (#81) — is the **first demoable on-device milestone**,
+  reusing the already-closed mono pipeline (#15/#79/#33/#38/#42). Multi-stream
+  (#32) is sequenced *after* the single-camera #84 demo.
 
 ## Forward-port convention
 
