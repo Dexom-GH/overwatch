@@ -1,8 +1,11 @@
-"""DeepStream pipeline graph builder — TARGET-ONLY (#15).
+"""DeepStream pipeline graph builder — TARGET-ONLY (#15, RTSP ingest #84).
 
 Builds the detect+track pipeline:
 
-    filesrc -> h264parse -> nvv4l2decoder -> nvstreammux -> nvinfer -> nvtracker -> sink
+    <source> -> nvstreammux -> nvinfer -> nvtracker -> sink
+
+where ``<source>`` is either an H.264 file (``filesrc -> h264parse -> nvv4l2decoder``,
+#15/#79) or a live RTSP URL (``nvurisrcbin``, #84) — chosen by ``plan_source``.
 
 A probe on the nvtracker src pad publishes each tracked object as a
 :class:`~overwatch.bus.schemas.Track` on ``infer.track`` (see ``probes.py``).
@@ -20,7 +23,8 @@ from __future__ import annotations
 
 import configparser
 import logging
-from typing import Any, Callable, Optional
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 try:
     import gi  # type: ignore
@@ -45,6 +49,69 @@ _TRACKER_INT_PROPS = {
     "enable-batch-process", "enable-past-frame",
 }
 _TRACKER_STR_PROPS = {"ll-lib-file", "ll-config-file"}
+
+_RTSP_SCHEMES = ("rtsp://", "rtsps://")
+
+
+@dataclass
+class SourceSpec:
+    """A pure plan of the source sub-graph that feeds ``nvstreammux``.
+
+    Holds only data (no GStreamer), so :func:`plan_source` is host-testable while
+    the actual element creation/linking in :meth:`DeepStreamPipeline.build` stays
+    target-only.
+
+    - ``kind`` — ``"file"`` or ``"rtsp"``.
+    - ``elements`` — ``(factory, name)`` in link order (the source sub-chain only).
+    - ``properties`` — element name -> ``{property: value}`` to set after creation.
+    - ``dynamic_src`` — ``True`` when the element feeding the mux exposes its src
+      pad dynamically (``nvurisrcbin``) and must be linked on ``pad-added``.
+    - ``mux_src_name`` — the element whose src pad links to ``nvstreammux`` sink_0.
+    """
+
+    kind: str
+    elements: "List[Tuple[str, str]]"
+    properties: "Dict[str, Dict[str, Any]]"
+    dynamic_src: bool
+    mux_src_name: str
+
+
+def classify_source(uri: str) -> str:
+    """Return ``"rtsp"`` for a live RTSP URL, else ``"file"``.
+
+    RTSP is the new live link added by #84; the detect+track demo (#15/#79) drives
+    an H.264 elementary-stream file, which remains the fallback for anything that
+    is not an ``rtsp(s)://`` URL.
+    """
+    if uri.strip().lower().startswith(_RTSP_SCHEMES):
+        return "rtsp"
+    return "file"
+
+
+def plan_source(uri: str) -> SourceSpec:
+    """Plan the source elements for ``uri`` (pure; no GStreamer). Host-testable.
+
+    - **file** (existing #15 path): ``filesrc -> h264parse -> nvv4l2decoder``; the
+      decoder's static src pad links to ``nvstreammux``.
+    - **rtsp** (#84): a single ``nvurisrcbin`` (DeepStream-native — handles the RTSP
+      connect, hardware decode to NVMM, and reconnection) whose **dynamic** src pad
+      is linked to ``nvstreammux`` in a ``pad-added`` callback.
+    """
+    if classify_source(uri) == "rtsp":
+        return SourceSpec(
+            kind="rtsp",
+            elements=[("nvurisrcbin", "src")],
+            properties={"src": {"uri": uri}},
+            dynamic_src=True,
+            mux_src_name="src",
+        )
+    return SourceSpec(
+        kind="file",
+        elements=[("filesrc", "src"), ("h264parse", "parse"), ("nvv4l2decoder", "dec")],
+        properties={"src": {"location": uri}},
+        dynamic_src=False,
+        mux_src_name="dec",
+    )
 
 
 class DeepStreamPipeline:  # pragma: no cover - target-only (GStreamer/pyds)
@@ -99,15 +166,25 @@ class DeepStreamPipeline:  # pragma: no cover - target-only (GStreamer/pyds)
             elif key in _TRACKER_STR_PROPS:
                 tracker.set_property(key, raw)
 
-    def build(self, source_h264: str, *, width: int = 1280, height: int = 720) -> None:
-        """Construct + link the pipeline for an H.264 elementary-stream file source."""
+    def build(self, source: str, *, width: int = 1280, height: int = 720) -> None:
+        """Construct + link the pipeline for ``source`` (H.264 file or live RTSP URL).
+
+        A file source keeps the #15 ``filesrc -> h264parse -> nvv4l2decoder`` chain;
+        an ``rtsp://`` URL (#84) is ingested via ``nvurisrcbin`` whose dynamic src pad
+        is linked to ``nvstreammux`` on ``pad-added``. The source sub-graph is chosen
+        by the host-tested :func:`plan_source`.
+        """
         Gst.init(None)
         self._pipeline = Gst.Pipeline()
 
-        src = self._mk("filesrc", "src")
-        src.set_property("location", source_h264)
-        parse = self._mk("h264parse", "parse")
-        dec = self._mk("nvv4l2decoder", "dec")
+        spec = plan_source(source)
+        made: "Dict[str, Any]" = {}
+        for factory, name in spec.elements:
+            el = self._mk(factory, name)
+            for prop, val in spec.properties.get(name, {}).items():
+                el.set_property(prop, val)
+            made[name] = el
+
         mux = self._mk("nvstreammux", "mux")
         mux.set_property("batch-size", 1)
         mux.set_property("width", width)
@@ -120,9 +197,24 @@ class DeepStreamPipeline:  # pragma: no cover - target-only (GStreamer/pyds)
         sink = self._mk("fakesink", "sink")
         sink.set_property("sync", 0)
 
-        src.link(parse)
-        parse.link(dec)
-        dec.get_static_pad("src").link(mux.get_request_pad("sink_0"))
+        # link the source sub-chain in order (e.g. filesrc -> h264parse -> nvv4l2decoder)
+        prev: "Optional[Any]" = None
+        for _factory, name in spec.elements:
+            if prev is not None:
+                prev.link(made[name])
+            prev = made[name]
+
+        mux_sink = mux.get_request_pad("sink_0")
+        if spec.dynamic_src:
+            # nvurisrcbin (rtsp) exposes its decoded src pad dynamically; link on pad-added.
+            def _on_pad_added(_bin: "Any", pad: "Any") -> None:
+                if not mux_sink.is_linked():
+                    pad.link(mux_sink)
+
+            made[spec.mux_src_name].connect("pad-added", _on_pad_added)
+        else:
+            made[spec.mux_src_name].get_static_pad("src").link(mux_sink)
+
         mux.link(pgie)
         pgie.link(tracker)
         tracker.link(sink)
@@ -190,7 +282,7 @@ def _demo(argv: "Optional[list]" = None) -> int:  # pragma: no cover - target-on
     ap = argparse.ArgumentParser(description="DeepStream detect+track demo (#15)")
     ap.add_argument("--pgie", required=True, help="nvinfer config (e.g. #76 stock-YOLOv8)")
     ap.add_argument("--tracker", default=None, help="nvtracker config (default: repo nvtracker.txt)")
-    ap.add_argument("--source", required=True, help="H.264 elementary-stream file")
+    ap.add_argument("--source", required=True, help="H.264 file or live rtsp:// URL")
     ap.add_argument("--labels", default=None, help="labels.txt (class_id -> name)")
     ap.add_argument("--frames", type=int, default=150, help="stop after N tracked frames")
     ap.add_argument("--timeout", type=int, default=120, help="hard wall-clock stop (s)")

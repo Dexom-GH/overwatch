@@ -139,6 +139,13 @@ class TestBuildStages:
         # capture -> inference -> fusion -> output (#38)
         assert [s.name for s in stages] == ["capture:cam-1", "inference", "fusion", "output"]
 
+    def test_build_stages_feeds_rtsp_url_to_inference(self):
+        # #84: the live RTSP URL must reach the DeepStream InferenceStage as its
+        # source so nvurisrcbin can ingest it (not the bare source_id).
+        stages = _build_stages(_full_cfg(), _FakeBus())
+        inference = stages[1]
+        assert inference._source == "rtsp://h/s"
+
 
 class TestFusionStage:
     def test_subscribes_to_infer_track_and_publishes_alerts(self):
