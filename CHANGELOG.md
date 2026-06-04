@@ -21,6 +21,16 @@ All notable changes to Overwatch are recorded here. Format follows
 - Release infrastructure (gated): CI workflow (host lint/type/tests), manual
   draft-release workflow, CalVer single-sourced version, gated on-device deploy
   script.
+- Deploy scaffolding (#43): `scripts/target/deploy.sh` filled in — verify env →
+  checkout release ref → refresh package + declared deps (fixes device-drift, e.g. a
+  missing `python-dotenv`) → (re)build TRT engines → install the `overwatch.service`
+  systemd unit (disabled) → bounded smoke-check; idempotent. New
+  `scripts/target/overwatch.service` bakes in the on-device runtime requirements
+  (`LD_PRELOAD=libgomp.so.1` for nvtracker, the `agent` user + shared venv,
+  env-file for secrets). New `scripts/target/50_smoke_check.sh` verifies the package
+  + declared deps import and the config loads at the deployed ref (verified on-device).
+  The unit is installed-but-disabled; enabling it + the live PLAYING/Slack runtime
+  smoke-check is gated on the supervised pipeline (#38) and split into #81.
 - First mono end-to-end on-device (#79): `fusion/mono_alerts.py` bridges the live
   per-object `infer.track` stream to the per-frame fusion rules. `FrameAssembler`
   reassembles per-frame `Track` lists (group by `frame_id`, flush on frame advance

@@ -1,0 +1,33 @@
+# Overwatch pipeline service (#43). Installed by scripts/target/deploy.sh into
+# /etc/systemd/system/. INSTALLED BUT NOT ENABLED in V1: app.py only runs the full
+# pipeline once #38 wires Inference/Fusion/Output stages into the Supervisor
+# (today app._build_stages is capture-only). Enabling + the live PLAYING/Slack
+# smoke-check is #81.
+#
+# Paths/user match the provisioned device (the sandboxed `agent` user + the shared
+# venv). Adjust here if the deploy layout changes.
+[Unit]
+Description=Overwatch edge-AI farm monitoring pipeline
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=agent
+Group=farmproject
+WorkingDirectory=/srv/farmproject/overwatch
+
+# REQUIRED: nvtracker's NvDCF low-level lib dlopen fails on aarch64 without libgomp
+# preloaded ("cannot allocate memory in static TLS block"). Proven in #15/#79.
+Environment=LD_PRELOAD=/lib/aarch64-linux-gnu/libgomp.so.1
+# Secrets resolve from the environment (#41) — provide via a drop-in / EnvironmentFile,
+# e.g. /etc/overwatch/overwatch.env holding SLACK_WEBHOOK=... (not committed).
+EnvironmentFile=-/etc/overwatch/overwatch.env
+
+ExecStart=/srv/farmproject/venv/bin/python -m overwatch.app
+Restart=on-failure
+RestartSec=5
+# Pipeline supervises its own stages internally (single process, #38/#43 grooming).
+
+[Install]
+WantedBy=multi-user.target
