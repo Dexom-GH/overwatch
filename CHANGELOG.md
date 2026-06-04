@@ -21,6 +21,17 @@ All notable changes to Overwatch are recorded here. Format follows
 - Release infrastructure (gated): CI workflow (host lint/type/tests), manual
   draft-release workflow, CalVer single-sourced version, gated on-device deploy
   script.
+- First mono end-to-end on-device (#79): `fusion/mono_alerts.py` bridges the live
+  per-object `infer.track` stream to the per-frame fusion rules. `FrameAssembler`
+  reassembles per-frame `Track` lists (group by `frame_id`, flush on frame advance
+  + final flush; no bus contract change); `MonoAlertFanout` drives fence (#20),
+  immobility (#19), and zone-count (#33) consumers and emits `Alert`s to an
+  injected sink. `mono_e2e.py` is the standalone on-device runner wiring the #15
+  pipeline → bus → fanout → `ThrottledAlertSink`/`SlackAlertSink` (logging poster).
+  Host-tested (frame reassembly + fan-out); **on-device verified** on the Jetson
+  with the #76 stock-YOLOv8 engine over the sample stream — all three alert types
+  delivered through the throttle (the shared on-device sign-off for #19/#20/#33).
+  Real Slack webhook delivery + supervised wiring are deploy concerns (#43/#38).
 - DeepStream detect+track -> `infer.track` (#15): `inference/deepstream/pipeline.py`
   builds decode -> nvstreammux -> nvinfer -> nvtracker, and a tracker-pad probe
   (`probes.py`) maps each `NvDsObjectMeta` to a `schemas.Track` (incl. the
