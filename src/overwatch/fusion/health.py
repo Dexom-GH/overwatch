@@ -24,7 +24,7 @@ from __future__ import annotations
 import math
 from typing import Dict, Optional
 
-from overwatch.bus.schemas import Alert, HealthSignal, Pose, Track
+from overwatch.bus.schemas import Alert, Event, HealthSignal, Pose, Track
 from overwatch.fusion.zones import Point, bbox_centroid
 
 _IMMOBILITY_SEVERITY = "warning"
@@ -107,6 +107,11 @@ class HealthMonitor:
             severity=_IMMOBILITY_SEVERITY,
             title="Immobility",
             message="Track {} immobile{}".format(signal.track_id, for_str),
+            source_event=Event(
+                timestamp=signal.timestamp,
+                kind="immobility",
+                track_id=signal.track_id,
+            ),
             detail={"track_id": signal.track_id, "kind": signal.kind},
         )
 

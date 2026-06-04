@@ -11,7 +11,8 @@ import json
 
 from overwatch.bus.schemas import HealthSignal, Track
 from overwatch.fusion.health import HealthMonitor
-from overwatch.output.slack import SlackAlertSink
+from overwatch.output.slack import SlackAlertSink, ThrottledAlertSink
+from overwatch.output.throttle import AlertThrottle
 
 
 def _track(track_id, cx, cy, frame_id=0):
@@ -104,3 +105,23 @@ def test_immobility_end_to_end_host_chain():
     feed(11.0, 10, 10)   # still immobile -> no new alert
     assert len(posts) == 1
     assert "immobil" in json.dumps(posts[0]).lower()
+
+
+def test_two_tracks_dedup_per_track_through_throttle():
+    # Regression (#19/#42): two distinct tracks going immobile inside one cooldown
+    # window must each get their own Slack post — the throttle keys per track, so
+    # they do NOT collapse to a single alert (which they would if source_event were
+    # None and both keyed on the shared ("Immobility", None)).
+    mon = HealthMonitor(immobility_seconds=10.0, move_threshold_px=5.0)
+    posts = []
+    slack = SlackAlertSink("u", poster=lambda url, payload: posts.append(json.loads(payload)))
+    # One clock value -> both alerts land inside the cooldown window.
+    throttled = ThrottledAlertSink(slack, AlertThrottle(cooldown_seconds=60.0, clock=lambda: 0.0))
+
+    for tid, cx, cy in ((1, 10, 10), (2, 80, 80)):
+        mon.update_immobility(0.0, _track(tid, cx, cy))            # seed each track
+        sig = mon.update_immobility(10.0, _track(tid, cx, cy))     # crosses threshold
+        assert sig is not None
+        throttled.send(mon.to_alert(sig))
+
+    assert len(posts) == 2  # one per track, not de-duped together

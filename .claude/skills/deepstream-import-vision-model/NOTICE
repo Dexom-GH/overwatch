@@ -1,0 +1,35 @@
+deepstream-import-vision-model (Overwatch fork)
+===============================================
+
+This skill is derived from NVIDIA's "deepstream-import-vision-model" skill.
+
+  Upstream:  https://github.com/NVIDIA/skills/tree/main/skills/deepstream-import-vision-model
+  Version:   1.2.1
+  Author:    NVIDIA CORPORATION & AFFILIATES
+  License:   CC-BY-4.0 AND Apache-2.0
+
+Vendored verbatim from upstream:
+  - references/model-acquire.md
+  - references/engine-build.md
+  - references/pipeline-run.md
+  - references/report-generation.md      (documentation — CC-BY-4.0)
+  - scripts/model/inspect-onnx.py
+  - scripts/model/make-static-batch-onnx.py   (code — Apache-2.0, SPDX headers intact)
+
+Added by the Overwatch project (not upstream):
+  - SKILL.md                 (adapted front matter / overview for Jetson Xavier NX,
+                              TensorRT 8.5, DeepStream 6.x; replaces upstream SKILL.md)
+  - OVERWATCH-ADAPTATION.md  (delta table + verification status)
+  - this NOTICE
+
+NOT vendored from upstream:
+  - skill.oms.sig            (NVIDIA signature — invalidated by adaptation)
+  - evals/
+  - scripts/deepstream/, scripts/engine/, scripts/report/
+                              (trtexec/deepstream-app sweep + wkhtmltopdf/pandoc/mermaid
+                               PDF report machinery — datacenter-oriented, TRT 10 / DS 9.0
+                               assumptions, not part of the V1 edge deliverable)
+
+The upstream reference docs are kept VERBATIM and describe a DeepStream 9.0 / TensorRT 10
+/ Ubuntu 24.04 / datacenter-GPU workflow. They are NOT corrected for our stack in place;
+read OVERWATCH-ADAPTATION.md and translate every command before running it on the device.
