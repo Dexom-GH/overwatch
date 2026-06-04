@@ -8,8 +8,11 @@
 # tier = data-availability tier for DETECTION (PO-approved 2026-06-02; see #5):
 #   1 = spine species, public detection data exists → drives #15/#16
 #   2 = data-gated, partial public data (poultry ~ COCO "bird")
-#   3 = bespoke-data-gated, no public detection data → tracked in #35;
-#       in V1 only if labeling lands in time, else demoted to V2.
+#   3 = bespoke-data-gated, no public detection data → spike #35.
+#       RESOLVED 2026-06-04 (spike #35): DEMOTED TO V2 — not trained in the V1
+#       detector. ids kept canonical here (we own the label map for V2); the V1
+#       farm detector (#77) ships 3-class (sheep/goat/poultry). See
+#       docs/research/2026-06-04-tier3-detection-dataset-feasibility.md.
 # Custom detector fine-tuning is required regardless (COCO omits goat/rabbit/
 # guinea pig). Detector model: Ultralytics YOLOv8, licensing-cleared under
 # ADR-0007 (non-commercial/AGPL); see docs/SOFTWARE_STACK.md "Models". The earlier
@@ -32,8 +35,8 @@ animals:
   - class_id: 3
     name: rabbit
     reid_difficulty: very_high
-    tier: 3                 # data-gated: no public detection data (#35)
+    tier: 3                 # spike #35 → DEMOTED TO V2 (not in V1 detector)
   - class_id: 4
     name: guinea_pig
     reid_difficulty: very_high
-    tier: 3                 # data-gated: no public detection data (#35)
+    tier: 3                 # spike #35 → DEMOTED TO V2 (not in V1 detector)
