@@ -38,18 +38,18 @@ echo "-- deploy dir: $ROOT"
 echo "-- venv:       $VENV"
 
 # 1. Verify the provisioned env matches the build-order / pins.
-echo "== [1/6] verify environment =="
+echo "== [1/7] verify environment =="
 bash "$HERE/30_verify_env.sh"
 
 # 2. Fetch + check out the release ref (fixes 'device on a stale checkout' drift).
-echo "== [2/6] check out release ref v$VERSION =="
+echo "== [2/7] check out release ref v$VERSION =="
 git -C "$ROOT" fetch --tags --quiet
 git -C "$ROOT" checkout "v$VERSION"
 
 # 3. Refresh the installed package AND declared deps (fixes missing-dep drift,
 #    e.g. python-dotenv added by #41). Target-only wheels (pyzed/torch/tensorrt/
 #    pyds) come from the provisioning scripts, not here.
-echo "== [3/6] refresh package + declared deps =="
+echo "== [3/7] refresh package + declared deps =="
 "$PIP" install -e "$ROOT"
 "$PIP" install -r "$ROOT/requirements.target.txt"
 
@@ -59,21 +59,29 @@ echo "== [3/6] refresh package + declared deps =="
 #    DeepStream-Yolo builder names it model_b1_gpu0_fp16.engine and IGNORES
 #    model-engine-file, so point configs at that name to reuse, not rebuild.
 if [ "${SKIP_ENGINE_BUILD:-0}" = "1" ]; then
-  echo "== [4/6] engine (re)build SKIPPED (SKIP_ENGINE_BUILD=1) =="
+  echo "== [4/7] engine (re)build SKIPPED (SKIP_ENGINE_BUILD=1) =="
 else
-  echo "== [4/6] (re)build TensorRT engines on-device =="
+  echo "== [4/7] (re)build TensorRT engines on-device =="
   bash "$HERE/40_convert_megadescriptor.sh"
 fi
 
 # 5. Install (not enable) the systemd unit. Needs root — run deploy.sh as an
 #    operator with sudo. Enabling/starting is gated on #38 (see #81).
-echo "== [5/6] install systemd unit (disabled) =="
+echo "== [5/7] install systemd unit (disabled) =="
 sudo install -m 644 "$HERE/overwatch.service" /etc/systemd/system/overwatch.service
 sudo systemctl daemon-reload
 echo "   installed /etc/systemd/system/overwatch.service (NOT enabled — #38/#81)"
 
 # 6. Bounded smoke-check (no live pipeline; PLAYING + Slack delivery is #81).
-echo "== [6/6] bounded smoke-check =="
+echo "== [6/7] bounded smoke-check =="
 OVERWATCH_VENV="$VENV" bash "$HERE/50_smoke_check.sh"
+
+# 7. Startup-precondition health-check (#55). Non-fatal here: at deploy time the
+#    RTSP camera may not be cabled/reachable yet — report preconditions but don't
+#    abort the deploy. The same check gates boot/on-demand (exit code honoured by
+#    55_healthcheck.sh) and is wired before the service is enabled (#81).
+echo "== [7/7] startup-precondition health-check =="
+OVERWATCH_VENV="$VENV" bash "$HERE/55_healthcheck.sh" || \
+  echo "[WARN] startup preconditions not all met (see above) — resolve before enabling the service (#81)"
 
 echo "== deploy v$VERSION complete (service installed, disabled; enable via #38/#81) =="
