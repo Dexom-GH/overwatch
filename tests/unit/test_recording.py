@@ -11,10 +11,11 @@ import numpy as np
 import pytest
 
 from overwatch.bus import topics
-from overwatch.bus.schemas import DepthFrame, Frame
+from overwatch.bus.schemas import DepthFrame, Frame, Track
 from overwatch.capture.base import CaptureSource
 from overwatch.capture.recording import (
     FrameRecorder,
+    MessageRecorder,
     RecordingError,
     ReplaySource,
     replay_to_bus,
@@ -191,3 +192,77 @@ def test_replay_over_real_zeromq_bus_delivers_synced_frames(tmp_path):
     depth = by_topic[topics.CAPTURE_DEPTH][0]
     assert depth.frame_id == 1
     np.testing.assert_array_equal(depth.depth, _depth(1).depth)
+
+
+# --- #102: record/replay the infer.track stream for offline fusion iteration ---
+
+
+def _trk(track_id, cx, cy, frame_id):
+    return Track(track_id=track_id, frame_id=frame_id, bbox=(cx - 1, cy - 1, cx + 1, cy + 1),
+                 class_id=0, class_name="sheep", confidence=0.9)
+
+
+def test_message_recorder_round_trips_infer_track(tmp_path):
+    # MessageRecorder records arbitrary (topic, message) pairs; replay_to_bus
+    # (topic-agnostic) plays them back. Here: the infer.track Track stream.
+    path = tmp_path / "tracks.owrec"
+    with MessageRecorder(path) as rec:
+        rec.record(topics.INFER_TRACK, _trk(1, 10, 5, frame_id=0))
+        rec.record(topics.INFER_TRACK, _trk(1, 10, 15, frame_id=1))
+
+    bus = _FakeBus()
+    n = replay_to_bus(str(path), bus)
+    assert n == 2
+    assert [t for t, _ in bus.published] == [topics.INFER_TRACK, topics.INFER_TRACK]
+    assert bus.published[0][1].track_id == 1 and bus.published[0][1].frame_id == 0
+    assert bus.published[1][1].frame_id == 1
+
+
+def test_message_recorder_rejects_non_schema(tmp_path):
+    path = tmp_path / "bad.owrec"
+    with MessageRecorder(path) as rec:
+        with pytest.raises(RecordingError):
+            rec.record(topics.INFER_TRACK, {"not": "a schema"})
+
+
+def test_replay_infer_track_into_fusion_fanout_over_real_bus(tmp_path):
+    # The #102 payoff: a recorded infer.track clip, replayed over a *real* in-proc
+    # ZeroMqBus into the fusion fanout, drives fence/count/health host-side — no
+    # DeepStream/inference. A track crosses the fence (below -> above), so the
+    # crossing frame flushes when the trailing frame arrives and a Fence alert fires.
+    import threading
+
+    from overwatch.bus.zeromq_bus import ZeroMqBus
+    from overwatch.config.schema import FenceLine
+    from overwatch.fusion.mono_alerts import MonoAlertFanout
+
+    path = tmp_path / "tracks.owrec"
+    with MessageRecorder(path) as rec:
+        rec.record(topics.INFER_TRACK, _trk(1, 10, 5, frame_id=0))   # below the fence
+        rec.record(topics.INFER_TRACK, _trk(1, 10, 15, frame_id=1))  # above -> crossing
+        rec.record(topics.INFER_TRACK, _trk(1, 10, 15, frame_id=2))  # trailing -> flush frame 1
+
+    alerts = []
+    got = threading.Event()
+
+    def _sink(alert):
+        alerts.append(alert)
+        got.set()
+
+    fence = FenceLine(name="gate", line=[(0.0, 10.0), (20.0, 10.0)])
+    fanout = MonoAlertFanout(_sink, fences=[fence])
+
+    bus = ZeroMqBus(endpoint="inproc://test-trackreplay-fusion")
+    bus.subscribe(topics.INFER_TRACK, fanout.on_track)
+    bus.start()
+    try:
+        n = replay_to_bus(str(path), bus)
+        assert n == 3
+        assert got.wait(timeout=5.0), "replayed infer.track did not drive a fusion alert"
+    finally:
+        bus.close()
+
+    assert len(alerts) == 1
+    assert alerts[0].title == "Fence crossing"
+    assert alerts[0].source_event is not None
+    assert alerts[0].source_event.kind == "fence_crossing"

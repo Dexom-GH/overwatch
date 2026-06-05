@@ -53,6 +53,11 @@ record (repeated until EOF on a record boundary):
 |---|---|---|
 | `capture.frame` | `schemas.Frame` | RGB frame; always present per logical frame |
 | `capture.depth` | `schemas.DepthFrame` | optional; written **after** its `capture.frame` |
+| `infer.track` | `schemas.Track` | the tracked-object stream; recorded with `MessageRecorder` for offline fusion iteration (#102) |
+
+The format is **topic-agnostic** — `MessageRecorder` records any `(topic, message)`
+pair, and `replay_to_bus` plays back whatever topics a file contains. The table is
+the V1 set in use, not a limit of the container.
 
 On replay, a `capture.depth` record is paired with the immediately preceding
 `capture.frame` **of the same `frame_id`**; an unmatched depth record is dropped,
@@ -61,23 +66,43 @@ optional and skew-free.
 
 ## What replays where (host vs target)
 
-- **Host-runnable:** writing a recording (`FrameRecorder`), reading it back as a
-  drop-in `CaptureSource` (`ReplaySource`), and republishing it onto a
-  `MessageBus` (`replay_to_bus`) — all stdlib + numpy + the bus codec, **no
-  pyzed/DeepStream**. Unit-tested off-device against synthetic clips, and over a
-  real in-proc `ZeroMqBus`.
+- **Host-runnable:** writing a recording (`FrameRecorder` for capture,
+  `MessageRecorder` for any topic), reading a capture clip back as a drop-in
+  `CaptureSource` (`ReplaySource`), and republishing any clip onto a `MessageBus`
+  (`replay_to_bus`) — all stdlib + numpy + the bus codec, **no pyzed/DeepStream**.
+  Unit-tested off-device against synthetic clips, and over a real in-proc
+  `ZeroMqBus`.
 - **Target-only:** recording a *live* ZED clip (feed `FrameRecorder` from
   `ZedSource` — pyzed), and full-pipeline replay through inference on the Jetson.
 
-### Limitation — driving fusion offline needs a *track* stream
+### Offline fusion iteration — replay the `infer.track` stream (#102)
 
-The recorder captures the **capture** stream (`Frame` / `DepthFrame`). The
-fusion / counting / health stages consume **`infer.track`** (`Track`), produced by
-the DeepStream inference stage, which is target-only. So a recorded capture clip
-replays end-to-end through fusion only *on-device* (capture→inference→fusion). A
-**pure-host** fusion iteration loop would require recording/replaying the
-`infer.track` stream as well — a deliberate extension of this format (it already
-supports arbitrary topics) tracked separately, not built under #99.
+The capture stream (`Frame` / `DepthFrame`) alone can't drive fusion on the host:
+fusion / counting / health consume **`infer.track`** (`Track`), produced by the
+**target-only** DeepStream inference stage. The format closes this by recording the
+`infer.track` topic directly with `MessageRecorder`:
+
+- **Capture a real clip on-device** — tap the running bus before `start()`:
+
+  ```python
+  rec = MessageRecorder("tracks.owrec").open()
+  bus.subscribe(topics.INFER_TRACK, lambda t: rec.record(topics.INFER_TRACK, t))
+  # run the pipeline (inference publishes infer.track); then:
+  rec.close()
+  ```
+
+- **Iterate fusion offline on the host** — replay that clip into the fusion fanout
+  over a real bus, no inference required:
+
+  ```python
+  fanout = MonoAlertFanout(sink, fences=..., zones=...)
+  bus.subscribe(topics.INFER_TRACK, fanout.on_track)
+  bus.start()
+  replay_to_bus("tracks.owrec", bus)   # drives fence / count / immobility -> alerts
+  ```
+
+  Synthetic `Track` fixtures work the same way, so fence / count / health logic is
+  fully host-testable off-device (see `tests/unit/test_recording.py`).
 
 ## Versioning
 
