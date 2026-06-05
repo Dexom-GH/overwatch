@@ -86,6 +86,20 @@ class SqliteEventStore(EventStore):
             )
             return cur.rowcount
 
+    def prune_to_max_rows(self, max_rows: int) -> int:
+        """Delete oldest rows beyond a global ``max_rows`` budget (#40); newest survive.
+
+        Keeps the ``max_rows`` most recent records (by timestamp, id as tie-break)
+        across all kinds and deletes the rest. ``max_rows <= 0`` clears the table.
+        """
+        with self._lock, self._conn:
+            cur = self._conn.execute(
+                "DELETE FROM records WHERE id NOT IN ("
+                "  SELECT id FROM records ORDER BY timestamp DESC, id DESC LIMIT ?)",
+                (max(max_rows, 0),),
+            )
+            return cur.rowcount
+
     def close(self) -> None:
         with self._lock:
             self._conn.close()
