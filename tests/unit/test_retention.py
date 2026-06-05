@@ -10,8 +10,14 @@ import os
 
 import pytest
 
-from overwatch.bus.schemas import ZoneCount
-from overwatch.output.retention import RetentionPolicy, enforce_directory
+from overwatch.bus.schemas import Alert, ZoneCount
+from overwatch.config.schema import RetentionConfig
+from overwatch.output.retention import (
+    RetentionPolicy,
+    enforce_directory,
+    enforce_event_store,
+)
+from overwatch.output.sqlite_store import SqliteEventStore
 from overwatch.output.store import EventStore
 
 
@@ -131,3 +137,71 @@ class TestEventStorePruneContract:
 
         with pytest.raises(TypeError):
             _Incomplete()
+
+
+class TestFromConfig:
+    """RetentionPolicy.from_config maps output.store.retention -> a policy (#40)."""
+
+    def test_maps_age_days_and_rows(self):
+        p = RetentionPolicy.from_config(RetentionConfig(max_age_days=90, max_rows=1000))
+        assert p.max_age_seconds == 90 * 86400
+        assert p.max_count == 1000
+
+    def test_unset_bounds_are_none(self):
+        p = RetentionPolicy.from_config(RetentionConfig(max_age_days=None, max_rows=None))
+        assert p.max_age_seconds is None
+        assert p.max_count is None
+
+
+class TestPruneToMaxRows:
+    """SqliteEventStore enforces a global row-count budget, newest-first (#40)."""
+
+    def test_keeps_newest_n_rows(self):
+        store = SqliteEventStore(":memory:")
+        for ts in (10.0, 20.0, 30.0, 40.0):
+            store.record(ZoneCount(zone_id="z", timestamp=ts, count=1))
+        removed = store.prune_to_max_rows(2)
+        assert removed == 2
+        kept = sorted(c.timestamp for c in store.query("zone_count", 0.0, 100.0))
+        assert kept == [30.0, 40.0]  # the 2 newest survive
+
+    def test_noop_when_within_budget(self):
+        store = SqliteEventStore(":memory:")
+        store.record(ZoneCount(zone_id="z", timestamp=10.0, count=1))
+        assert store.prune_to_max_rows(5) == 0
+
+    def test_base_default_is_zero(self):
+        # The row-cap is an optional backend capability; the ABC default is a no-op.
+        assert _MemStore().prune_to_max_rows(1) == 0
+
+
+class TestEnforceEventStore:
+    """enforce_event_store applies a policy's age + row-count bounds to a store (#40)."""
+
+    def _seed(self):
+        store = SqliteEventStore(":memory:")
+        for ts in (10.0, 20.0, 30.0, 40.0):
+            store.record(Alert(timestamp=ts, severity="info", title="t", message="m"))
+        return store
+
+    def test_prunes_by_age(self):
+        store = self._seed()
+        # now=100, max_age=75s -> cutoff 25 -> drop ts 10 & 20.
+        removed = enforce_event_store(store, RetentionPolicy(max_age_seconds=75.0), now=100.0)
+        assert removed == 2
+        assert sorted(a.timestamp for a in store.query("alert", 0.0, 100.0)) == [30.0, 40.0]
+
+    def test_prunes_by_row_cap(self):
+        store = self._seed()
+        removed = enforce_event_store(store, RetentionPolicy(max_count=1), now=100.0)
+        assert removed == 3
+        assert [a.timestamp for a in store.query("alert", 0.0, 100.0)] == [40.0]
+
+    def test_age_and_rows_combine(self):
+        store = self._seed()
+        # age drops 10 (cutoff 15); row cap 2 then drops oldest survivor (20).
+        removed = enforce_event_store(
+            store, RetentionPolicy(max_age_seconds=85.0, max_count=2), now=100.0
+        )
+        assert sorted(a.timestamp for a in store.query("alert", 0.0, 100.0)) == [30.0, 40.0]
+        assert removed == 2

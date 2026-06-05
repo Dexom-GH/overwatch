@@ -39,5 +39,16 @@ class EventStore(ABC):
         """
         raise NotImplementedError
 
+    def prune_to_max_rows(self, max_rows: int) -> int:
+        """Delete oldest records beyond a global ``max_rows`` budget; return the count.
+
+        The row-count half of the #40 retention budget (``output.store.retention``
+        ``max_rows``). Optional backend capability — the default is a no-op (returns
+        0) for stores that don't enforce a row cap; durable backends (SQLite)
+        override it. Callers usually go through
+        :func:`~overwatch.output.retention.enforce_event_store`.
+        """
+        return 0
+
 
 __all__ = ["EventStore"]

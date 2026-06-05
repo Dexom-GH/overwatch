@@ -20,7 +20,14 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, List, Optional, Sequence, Tuple
+
+if TYPE_CHECKING:  # annotations only — keep this module free of pydantic / store imports
+    from overwatch.config.schema import RetentionConfig
+    from overwatch.output.store import EventStore
+
+# Seconds in a day (retention config is expressed in days).
+_SECONDS_PER_DAY = 86400
 
 # A file/record entry for deletion selection: (identifier, size_bytes, mtime_s).
 Entry = Tuple[Any, int, float]
@@ -33,6 +40,20 @@ class RetentionPolicy:
     max_age_seconds: Optional[float] = None
     max_total_bytes: Optional[int] = None
     max_count: Optional[int] = None
+
+    @classmethod
+    def from_config(cls, cfg: "RetentionConfig") -> "RetentionPolicy":
+        """Build a policy from ``output.store.retention`` (``max_age_days`` / ``max_rows``).
+
+        The EventStore budget: age (days -> seconds) + an optional global row cap.
+        Directory budgets (recordings/crops bytes) are configured per-directory, not
+        here. Mirrors the ``from_config`` convention (cf. ``AlertThrottle``).
+        """
+        age = cfg.max_age_days
+        return cls(
+            max_age_seconds=None if age is None else age * _SECONDS_PER_DAY,
+            max_count=cfg.max_rows,
+        )
 
     def age_cutoff(self, now: float) -> Optional[float]:
         """The ``before`` timestamp for age-based pruning (e.g. EventStore.prune)."""
@@ -95,4 +116,24 @@ def enforce_directory(
     return victims
 
 
-__all__ = ["RetentionPolicy", "enforce_directory", "Entry"]
+def enforce_event_store(
+    store: "EventStore", policy: "RetentionPolicy", *, now: float
+) -> int:
+    """Apply ``policy``'s age + row-count bounds to an EventStore; return rows removed.
+
+    The durable-tier counterpart to :func:`enforce_directory`. Age-prunes via
+    :meth:`EventStore.prune` (cutoff from ``policy.age_cutoff``), then enforces the
+    global row cap via :meth:`EventStore.prune_to_max_rows`. Either bound left unset
+    on the policy is skipped. Build ``policy`` from config with
+    :meth:`RetentionPolicy.from_config`; run on a timer / after writes on-device.
+    """
+    removed = 0
+    cutoff = policy.age_cutoff(now)
+    if cutoff is not None:
+        removed += store.prune(cutoff)
+    if policy.max_count is not None:
+        removed += store.prune_to_max_rows(policy.max_count)
+    return removed
+
+
+__all__ = ["RetentionPolicy", "enforce_directory", "enforce_event_store", "Entry"]

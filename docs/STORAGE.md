@@ -28,15 +28,22 @@ main knob; EventStore rows are tiny and bounded by age.
 
 ## Enforcement
 
-- **EventStore:** `EventStore.prune(before)` deletes rows older than a cutoff. The
-  cutoff comes from `RetentionPolicy(max_age_seconds=...).age_cutoff(now)`, driven
-  by `output.store.retention` (`max_age_days`, optional `max_rows`). Default:
-  **90 days**, no row cap.
+- **EventStore:** `enforce_event_store(store, policy, now=...)` applies both
+  budgets — it age-prunes via `EventStore.prune(before)` (cutoff from
+  `policy.age_cutoff(now)`) **and** enforces the global row cap via
+  `EventStore.prune_to_max_rows(max_rows)` (newest rows survive). Build the policy
+  straight from config with `RetentionPolicy.from_config(cfg.output.store.retention)`
+  (`max_age_days` → seconds, `max_rows` → row cap). Default: **90 days**, no row cap.
 - **Recordings & crops:** `enforce_directory(dir, RetentionPolicy(...), now=...)`
   deletes files **oldest-first** once the directory exceeds its age/size/count
-  budget. Run it on a timer or after each rotation. (The recordings/crops
-  directory budgets are wired to config when those features land — #11 recordings,
-  the ReID crop path; the policy + enforcement are ready now.)
+  budget. (The recordings/crops directory byte budgets are configured per-directory
+  when those features land — #11 recordings, the ReID crop path; the policy +
+  enforcement are ready now.)
+- **When to run:** call `enforce_event_store` (and `enforce_directory` for the
+  recordings/crops dirs) on a timer or after writes. The periodic enforcement
+  *scheduler* — wiring this into the running app's lifecycle — is the remaining
+  integration step; the policy, config mapping, and enforcement primitives are
+  complete and host-tested.
 
 ## On-device verification (target — deferred)
 
