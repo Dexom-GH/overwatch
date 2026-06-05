@@ -5,11 +5,15 @@ stack must be iterable without a live scene. This module persists the capture
 stream to a small framed log (``.owrec``) and replays it:
 
 - :class:`FrameRecorder` writes ``(Frame, DepthFrame?)`` pairs to a file.
-- :class:`ReplaySource` reads them back as a :class:`CaptureSource` — a *drop-in*
-  for ``ZedSource``, so ``fusion``/counting/health consume a replay exactly like
-  the live camera. This is the **host-runnable** path.
+- :class:`MessageRecorder` writes *any* ``(topic, message)`` pair — notably the
+  ``infer.track`` (:class:`Track`) stream, so fusion/counting/health can be
+  iterated **fully offline on the host** without the target-only inference stage
+  (#102).
+- :class:`ReplaySource` reads a capture recording back as a :class:`CaptureSource`
+  — a *drop-in* for ``ZedSource``, so ``fusion``/counting/health consume a replay
+  exactly like the live camera. This is the **host-runnable** path.
 - :func:`replay_to_bus` republishes a recording onto a ``MessageBus`` in recorded
-  order (``capture.frame`` / ``capture.depth``) for on-device full-pipeline replay.
+  order (any topic — ``capture.frame`` / ``capture.depth`` / ``infer.track``).
 
 **Format == the bus contract.** Each record stores the bytes produced by
 ``bus.serialization.encode`` (the same multipart codec used on the wire), so a
@@ -142,6 +146,58 @@ class FrameRecorder:
         self.close()
 
 
+class MessageRecorder:
+    """Records arbitrary ``(topic, message)`` pairs to an ``.owrec`` file.
+
+    Generalizes :class:`FrameRecorder` beyond the capture stream: any
+    bus-serializable schema message on any topic. Its motivating use (#102) is
+    recording the ``infer.track`` (:class:`~overwatch.bus.schemas.Track`) stream so
+    fusion / counting / health can be iterated **fully offline on the host** —
+    replay a recorded track clip onto a bus with :func:`replay_to_bus` (which is
+    already topic-agnostic) and the fusion fanout consumes it exactly as it would a
+    live #15 pipeline. No bus contract change — it stores the same codec bytes on
+    the same topics.
+
+    To capture a real ``infer.track`` clip from a running pipeline, subscribe
+    :meth:`record` onto the bus **before** ``start()`` (the ZeroMqBus contract)::
+
+        rec = MessageRecorder("tracks.owrec").open()
+        bus.subscribe(topics.INFER_TRACK, lambda t: rec.record(topics.INFER_TRACK, t))
+        # ... run the pipeline ...
+        rec.close()
+
+    Use as a context manager, or call :meth:`open` / :meth:`close` explicitly.
+    """
+
+    def __init__(self, path: "PathT") -> None:
+        self._path = path
+        self._fh: Optional[BinaryIO] = None
+
+    def open(self) -> "MessageRecorder":
+        self._fh = open(self._path, "wb")
+        self._fh.write(_MAGIC)
+        return self
+
+    def record(self, topic: str, message: object) -> None:
+        if self._fh is None:
+            raise RecordingError("recorder is not open")
+        try:
+            _write_record(self._fh, topic, serialization.encode(message))
+        except serialization.SerializationError as exc:
+            raise RecordingError(str(exc)) from exc
+
+    def close(self) -> None:
+        if self._fh is not None:
+            self._fh.close()
+            self._fh = None
+
+    def __enter__(self) -> "MessageRecorder":
+        return self.open()
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+
 class ReplaySource(CaptureSource):
     """Replays a recorded ``.owrec`` clip as a :class:`CaptureSource`.
 
@@ -199,4 +255,10 @@ def replay_to_bus(path: "PathT", bus: "MessageBus") -> int:
     return count
 
 
-__all__ = ["FrameRecorder", "ReplaySource", "RecordingError", "replay_to_bus"]
+__all__ = [
+    "FrameRecorder",
+    "MessageRecorder",
+    "ReplaySource",
+    "RecordingError",
+    "replay_to_bus",
+]
