@@ -35,7 +35,8 @@ $labels = @(
   @("v1",                    "0e8a16", "In V1 scope"),
   @("v2",                    "ededed", "Deferred to V2"),
   @("v2-fwd",                "fbca04", "V2 feature pulled forward into V1"),
-  @("risk:high",             "d73a4a", "High-risk / feasibility-critical")
+  @("risk:high",             "d73a4a", "High-risk / feasibility-critical"),
+  @("needs:on-device",       "fef2c0", "Host work merged; remaining AC is Jetson on-device verification")
 )
 
 Write-Host "== creating/updating labels on $repo =="

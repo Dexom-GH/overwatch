@@ -75,6 +75,16 @@ Use the `spike` issue template. Label `type:spike` + `risk:high`.
 | Status | `status:needs-grooming`, `status:ready`, `status:blocked` |
 | Scope | `v1`, `v2`, `v2-fwd` (pulled forward into V1) |
 | Risk | `risk:high` |
+| Verification | `needs:on-device` |
+
+`needs:on-device` is **orthogonal** to status — it rides *alongside* `status:ready`
+to mark an item whose host code is merged and whose only remaining acceptance
+criterion is Jetson on-device verification (typically gated on the device being
+available, e.g. power/cabling). It is **not** `status:blocked`: such an item is
+ready *to verify*, just not to code. So when selecting host-implementable work,
+pull `status:ready` **minus** `needs:on-device` — otherwise the queue scan
+surfaces merged-but-unverified slices (e.g. orchestration, dashboard, ZED capture
+spine) that have no host code left to write.
 
 Create the labels + milestone with `scripts/dev/setup_backlog.ps1` (Windows host)
 or the `gh` commands it documents.
