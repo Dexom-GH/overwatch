@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, List
 
-from overwatch.bus.schemas import Alert, ZoneCount
+from overwatch.bus.schemas import Alert, Event, ZoneCount
 
 if TYPE_CHECKING:
     from overwatch.output.store import EventStore
@@ -22,11 +22,12 @@ if TYPE_CHECKING:
 
 @dataclass
 class DashboardState:
-    """The renderable snapshot: latest count per zone + recent alerts."""
+    """The renderable snapshot: latest count per zone + recent alerts + events."""
 
     generated_at: float
     zone_counts: List[ZoneCount] = field(default_factory=list)
     recent_alerts: List[Alert] = field(default_factory=list)
+    recent_events: List[Event] = field(default_factory=list)
 
 
 def latest_zone_counts(
@@ -50,12 +51,26 @@ def recent_alerts(
     return alerts[:limit]
 
 
+def recent_events(
+    store: "EventStore", *, end: float, start: float = 0.0, limit: int = 10
+) -> "List[Event]":
+    """The ``limit`` most recent discrete events within ``[start, end]``, newest first.
+
+    These are the logic-layer ``Event`` records (fence-crossing, immobility, ...);
+    the dashboard lists them with their type/zone/track_id/timestamp.
+    """
+    events = list(store.query("event", start, end))
+    events.sort(key=lambda e: e.timestamp, reverse=True)
+    return events[:limit]
+
+
 def build_dashboard_state(
     store: "EventStore",
     *,
     now: float,
     window_s: float = 3600.0,
     alert_limit: int = 10,
+    event_limit: int = 10,
 ) -> "DashboardState":
     """Assemble the dashboard snapshot over the trailing ``window_s`` ending at ``now``."""
     start = now - window_s
@@ -63,6 +78,7 @@ def build_dashboard_state(
         generated_at=now,
         zone_counts=latest_zone_counts(store, start=start, end=now),
         recent_alerts=recent_alerts(store, start=start, end=now, limit=alert_limit),
+        recent_events=recent_events(store, start=start, end=now, limit=event_limit),
     )
 
 
@@ -90,6 +106,7 @@ __all__ = [
     "DashboardState",
     "latest_zone_counts",
     "recent_alerts",
+    "recent_events",
     "build_dashboard_state",
     "render_text",
 ]
