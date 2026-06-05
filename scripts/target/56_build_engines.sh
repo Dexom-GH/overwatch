@@ -26,7 +26,7 @@ REPO="$(cd "$HERE/../.." && pwd)"
 MODELS="$REPO/models"
 TRTEXEC="${TRTEXEC:-/usr/src/tensorrt/bin/trtexec}"
 PY="${PY:-/srv/farmproject/venv/bin/python3}"
-WS="${WS:-4096}"          # TRT 8.5 workspace pool (MiB); Xavier NX shares ~8 GB
+WS="${WS:-4096}"          # TRT 8.5 workspace pool (MiB); Xavier NX shares 16 GB
 FORCE="${FORCE:-0}"
 mkdir -p "$MODELS"
 
