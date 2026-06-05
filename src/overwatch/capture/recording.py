@@ -22,6 +22,9 @@ container is just a framing around those bytes:
         nframes : uint32
         frame*  : uint32 length + bytes   # one entry per serialization frame
 
+The ``.owrec`` container is specified in full (the single source of truth) in
+``docs/RECORDING_FORMAT.md`` — keep that doc and this module in lockstep.
+
 This module is **host-safe** (numpy + the bus codec only — no pyzed/DeepStream),
 so recording/replay of synthetic clips is unit-tested off-device. Recording from
 a *live* ZED is just :class:`FrameRecorder` fed by ``ZedSource`` and is the only

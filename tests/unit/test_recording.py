@@ -141,3 +141,53 @@ def test_replay_to_bus_publishes_both_topics_in_order(tmp_path):
     assert bus.published[0][1].frame_id == 1
     assert bus.published[1][1].frame_id == 1
     assert bus.published[2][1].frame_id == 2
+
+
+def test_replay_over_real_zeromq_bus_delivers_synced_frames(tmp_path):
+    # End-to-end over the real transport (not a fake bus): a replayed clip flows
+    # through a live in-proc ZeroMqBus to a downstream subscriber, host-side, with
+    # frame ids / timestamps / depth preserved. This is the offline-iteration path
+    # a host consumer (e.g. a fusion harness) would attach to.
+    import threading
+
+    from overwatch.bus.zeromq_bus import ZeroMqBus
+
+    path = tmp_path / "clip.owrec"
+    _record(path, [(_frame(1), _depth(1)), (_frame(2), None)])
+
+    received = []
+    done = threading.Event()
+    lock = threading.Lock()
+
+    def _collect(topic):
+        def _handler(msg):
+            with lock:
+                received.append((topic, msg))
+                if len(received) == 3:  # frame, depth, frame
+                    done.set()
+        return _handler
+
+    bus = ZeroMqBus(endpoint="inproc://test-replay")
+    bus.subscribe(topics.CAPTURE_FRAME, _collect(topics.CAPTURE_FRAME))
+    bus.subscribe(topics.CAPTURE_DEPTH, _collect(topics.CAPTURE_DEPTH))
+    bus.start()
+    try:
+        n = replay_to_bus(str(path), bus)
+        assert n == 3
+        assert done.wait(timeout=5.0), "replayed frames were not all delivered"
+    finally:
+        bus.close()
+
+    with lock:
+        topics_seen = [t for t, _ in received]
+        by_topic = {}
+        for t, m in received:
+            by_topic.setdefault(t, []).append(m)
+    assert topics_seen.count(topics.CAPTURE_FRAME) == 2
+    assert topics_seen.count(topics.CAPTURE_DEPTH) == 1
+    frames = sorted(by_topic[topics.CAPTURE_FRAME], key=lambda f: f.frame_id)
+    assert [f.frame_id for f in frames] == [1, 2]
+    assert frames[0].timestamp == 101.0  # _frame(1): 100.0 + 1, ids/timestamps synced
+    depth = by_topic[topics.CAPTURE_DEPTH][0]
+    assert depth.frame_id == 1
+    np.testing.assert_array_equal(depth.depth, _depth(1).depth)
