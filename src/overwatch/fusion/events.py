@@ -25,6 +25,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
 
 from overwatch.bus.schemas import Alert, Event, Track
+from overwatch.fusion.phrasing import animal_noun
 from overwatch.fusion.zones import Point, bbox_centroid, fence_crossing
 
 if TYPE_CHECKING:  # annotation only — avoids a runtime pydantic import in fusion
@@ -33,6 +34,10 @@ if TYPE_CHECKING:  # annotation only — avoids a runtime pydantic import in fus
 # Default severity for a fence-crossing alert. Severity-gating against
 # output.slack.min_severity is an output-stage concern (#16), not done here.
 _FENCE_SEVERITY = "warning"
+
+# Plain-language wording for the crossing direction (#91). "out" is left of the
+# directed fence line, so out_to_in reads as "entering", in_to_out as "leaving".
+_FRIENDLY_DIRECTION = {"out_to_in": "entering", "in_to_out": "leaving"}
 
 
 class EventDetector:
@@ -88,13 +93,15 @@ class EventDetector:
         if event.kind != "fence_crossing":
             return None
         direction = event.detail.get("direction", "crossed")
+        friendly = _FRIENDLY_DIRECTION.get(direction, "crossing")
         fence = event.zone_id or "fence"
+        animal = animal_noun(event.detail.get("class_name"))
         return Alert(
             timestamp=event.timestamp,
             severity=_FENCE_SEVERITY,
             title="Fence crossing",
-            message="Track {} crossed fence '{}' ({})".format(
-                event.track_id, fence, direction
+            message="{} #{} crossed the '{}' fence ({})".format(
+                animal, event.track_id, fence, friendly
             ),
             source_event=event,
             detail={"direction": direction},

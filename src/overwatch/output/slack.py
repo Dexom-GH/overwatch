@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import urllib.request
 from abc import ABC, abstractmethod
 from typing import Any, Callable, Dict, Optional, Tuple
@@ -81,6 +82,7 @@ class SlackAlertSink(AlertSink):
     @staticmethod
     def _format(alert: Alert) -> "Dict[str, Any]":
         color, emoji = _SEVERITY_STYLE.get(alert.severity, _FALLBACK_STYLE)
+        when = time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(alert.timestamp))
         return {
             "text": "{} *{}*\n{}".format(emoji, alert.title, alert.message),
             "attachments": [
@@ -88,6 +90,7 @@ class SlackAlertSink(AlertSink):
                     "color": color,
                     "fallback": "{}: {}".format(alert.title, alert.message),
                     "fields": [
+                        {"title": "When", "value": when, "short": True},
                         {"title": "Severity", "value": alert.severity, "short": True},
                     ],
                 }

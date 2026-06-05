@@ -261,12 +261,18 @@ def _build_stages(cfg: "AppConfig", bus: "MessageBus") -> "List[Stage]":
     # DeepStream via the #6 seam (deferred) — source_id is a placeholder until then.
     src0 = cfg.capture.sources[0]
     infer_source = getattr(src0, "url", None) or src0.source_id
+    # Resolve detector class names (#91) so Track.class_name — and thus the
+    # operator's Slack alert — reads "sheep", not "0". None falls back to ids.
+    from overwatch.inference.deepstream.pipeline import load_detector_labels
+
+    labels = load_detector_labels(cfg.inference.detector_config)
     stages.append(
         InferenceStage(
             bus,
             pgie_config=cfg.inference.detector_config,
             source=infer_source,
             tracker_config=cfg.inference.tracker_config,
+            labels=labels,
         )
     )
     stages.append(FusionStage(bus, cfg))

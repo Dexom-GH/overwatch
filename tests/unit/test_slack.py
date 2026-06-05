@@ -46,6 +46,16 @@ def test_send_posts_formatted_payload_to_webhook():
     assert "Track 1 crossed fence 'gate'" in blob
 
 
+def test_send_includes_readable_timestamp():
+    # operator-friendly: the alert time appears as a human-readable string, not a
+    # raw epoch float. _alert() uses timestamp=1.0 -> 1970-01-01 00:00:01 UTC.
+    poster = _Poster()
+    SlackAlertSink("u", poster=poster).send(_alert())
+    blob = json.dumps(poster.posts[0][1])
+    assert "1970-01-01" in blob
+    assert "UTC" in blob
+
+
 def test_send_colors_by_severity():
     def color_for(sev):
         poster = _Poster()
