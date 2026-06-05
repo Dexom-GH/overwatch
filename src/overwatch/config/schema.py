@@ -266,6 +266,7 @@ class DashboardConfig(_Strict):
     is the trailing window of records shown.
     """
 
+    enabled: bool = True  # run the supervised dashboard server with the pipeline (#110)
     host: str = "127.0.0.1"
     port: int = Field(default=8080, gt=0, le=65535)
     refresh_seconds: int = Field(default=5, gt=0)

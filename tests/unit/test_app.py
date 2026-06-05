@@ -14,6 +14,7 @@ import pytest
 
 from overwatch.app import (
     CaptureStage,
+    DashboardStage,
     FusionStage,
     InferenceStage,
     OutputStage,
@@ -172,17 +173,25 @@ class TestBuildStages:
     def test_build_stages_wires_full_pipeline_in_order(self):
         stages = _build_stages(_full_cfg(), _FakeBus())
         # capture -> inference -> fusion -> output (#38) + store sink (#108)
-        # + retention sweeper (#106)
+        # + retention sweeper (#106) + dashboard (#110)
         assert [s.name for s in stages] == [
-            "capture:cam-1", "inference", "fusion", "output", "store", "retention"
+            "capture:cam-1", "inference", "fusion", "output", "store", "retention",
+            "dashboard",
         ]
 
-    def test_build_stages_appends_store_and_retention_for_sqlite(self):
-        # Both durable-tier stages are wired from output.store; constructing them
-        # must NOT open the DB (lazy) so building stages has no filesystem side effect.
+    def test_build_stages_appends_durable_tier_stages_for_sqlite(self):
+        # Store/retention/dashboard are wired from output.store; constructing them
+        # must NOT open the DB or bind a port (lazy in run()) — no side effect.
         stages = _build_stages(_full_cfg(), _FakeBus())
-        assert isinstance(stages[-2], StoreStage)
-        assert isinstance(stages[-1], RetentionStage)
+        assert isinstance(stages[-3], StoreStage)
+        assert isinstance(stages[-2], RetentionStage)
+        assert isinstance(stages[-1], DashboardStage)
+
+    def test_build_stages_omits_dashboard_when_disabled(self):
+        cfg = _full_cfg()
+        cfg.output.dashboard.enabled = False
+        names = [s.name for s in _build_stages(cfg, _FakeBus())]
+        assert "dashboard" not in names
 
     def test_build_stages_feeds_rtsp_url_to_inference(self):
         # #84: the live RTSP URL must reach the DeepStream InferenceStage as its
@@ -333,6 +342,77 @@ class TestStoreStage:
         assert len(list(store.query("zone_count", 0.0, 100.0))) == 1
         assert len(list(store.query("health_signal", 0.0, 100.0))) == 1
         assert len(list(store.query("event", 0.0, 100.0))) == 1
+
+
+class _FakeServer:
+    """Stands in for an http.server.HTTPServer — serve_forever blocks until shutdown."""
+
+    def __init__(self):
+        self._stopped = threading.Event()
+        self.serve_called = False
+        self.shutdown_called = False
+        self.closed = False
+
+    def serve_forever(self):
+        self.serve_called = True
+        self._stopped.wait()
+
+    def shutdown(self):
+        self.shutdown_called = True
+        self._stopped.set()
+
+    def server_close(self):
+        self.closed = True
+
+
+class TestDashboardStage:
+    def test_name(self):
+        assert DashboardStage(_full_cfg(), server=_FakeServer()).name == "dashboard"
+
+    def test_serves_then_stops_clean(self):
+        srv = _FakeServer()
+        stage = DashboardStage(_full_cfg(), server=srv)
+        stop = threading.Event()
+        t = threading.Thread(target=stage.run, args=(stop,), daemon=True)
+        t.start()
+        try:
+            assert _wait_until(lambda: srv.serve_called, 5.0)
+        finally:
+            stop.set()
+            t.join(timeout=5.0)
+        assert not t.is_alive()  # clean shutdown
+        assert srv.shutdown_called and srv.closed
+
+    def test_real_server_serves_dashboard_then_stops(self):
+        import http.client
+
+        from overwatch.output.dashboard.server import make_server
+
+        store = SqliteEventStore(":memory:")
+        store.record(Alert(timestamp=1.0, severity="warning", title="Penned", message="m"))
+        server = make_server(store, host="127.0.0.1", port=0, now=lambda: 100.0)
+        host, port = server.server_address
+        stage = DashboardStage(_full_cfg(), server=server)
+        stop = threading.Event()
+        t = threading.Thread(target=stage.run, args=(stop,), daemon=True)
+        t.start()
+
+        def _get_ok():
+            try:
+                conn = http.client.HTTPConnection(host, port, timeout=2)
+                conn.request("GET", "/")
+                body = conn.getresponse().read().decode("utf-8")
+                conn.close()
+                return "Penned" in body
+            except OSError:
+                return False
+
+        try:
+            assert _wait_until(_get_ok, 5.0), "dashboard did not serve the seeded store"
+        finally:
+            stop.set()
+            t.join(timeout=5.0)
+        assert not t.is_alive()
 
 
 def _wait_until(predicate, timeout=5.0):

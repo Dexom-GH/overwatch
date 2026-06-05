@@ -103,7 +103,8 @@ one must name its gating issue so it can't masquerade as done.
 | `infer.detection` | — | — | unused: DeepStream emits tracks, not raw detections |
 
 Note: the durable EventStore is written by `StoreStage` and bounded by
-`RetentionStage` (both sqlite-backend, in `app._build_stages`). The read-only
-operator dashboard (`output/dashboard/`, #18) consumes that store; **its launcher
-is not yet wired** (tracked separately) — `serve()` exists but no entrypoint calls
-it.
+`RetentionStage`; the read-only operator dashboard (`output/dashboard/`, #18) is
+served by the supervised `DashboardStage` (#110) — all three are sqlite-backend
+stages wired in `app._build_stages` (the dashboard is gated by
+`output.dashboard.enabled`). A standalone `server.serve(cfg)` entry remains for
+running the dashboard as its own process.

@@ -73,6 +73,7 @@ output:
     rate_window_seconds: 60   # window for the burst cap
   dashboard:
     # Read-only operator dashboard (#18): thin local HTML, static refresh.
+    enabled: true             # run the supervised dashboard server with the pipeline (#110)
     host: 127.0.0.1           # bind address (on-site screen / localhost)
     port: 8080                # http port to serve the page on
     refresh_seconds: 5        # browser auto-refresh interval

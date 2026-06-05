@@ -19,8 +19,13 @@ the browser re-fetches on a `<meta http-equiv="refresh">` interval.
   Only `GET` is served; mutating methods are refused with `405` — the dashboard
   never writes.
 
-Surface knobs live under `output.dashboard` in config (`host`, `port`,
+Surface knobs live under `output.dashboard` in config (`enabled`, `host`, `port`,
 `refresh_seconds`, `window_seconds`, `alert_limit`, `event_limit`).
+
+**Launching it:** the supervised `DashboardStage` (`app.py`, #110) serves the
+dashboard with the pipeline (gated by `output.dashboard.enabled`); an operator
+opens `http://<host>:<port>`. For a standalone process, `server.serve(cfg)` is the
+alternative entry.
 
 Host-runnable (stdlib + SQLite) and unit-tested off-device. **On-device DoD:**
 render against the store produced by a live #84 RTSP→Slack run on the Jetson.
