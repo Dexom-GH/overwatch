@@ -80,3 +80,30 @@ the hybrid is locked. See
 [DECISIONS/0001-message-bus-choice.md](DECISIONS/0001-message-bus-choice.md).
 `bus/base.py` defines the transport-agnostic `MessageBus` ABC. To add a stage,
 follow the `bus-stage-conventions` skill.
+
+## Topic wiring state (keep current — this is how we avoid silent gaps)
+
+A topic existing in `topics.py` does **not** mean the live pipeline produces or
+consumes it. This table is the source of truth for what is actually wired vs.
+deliberately deferred — update it whenever a producer/consumer lands. A V1-active
+topic with a missing producer or consumer is a **bug**, not a feature; a deferred
+one must name its gating issue so it can't masquerade as done.
+
+| Topic | Producer | Consumer | State |
+|---|---|---|---|
+| `infer.track` | `InferenceStage` (DeepStream) | `FusionStage` | **wired (V1)** |
+| `output.alert` | `FusionStage` | `OutputStage` (Slack) + `StoreStage` (durable) | **wired (V1)** |
+| `fusion.count` | — | `StoreStage` | **gap: no producer** — fusion computes counts but doesn't publish them; dashboard count panel stays empty until fixed |
+| `fusion.health` | — | `StoreStage` | **gap: no producer** — immobility surfaces only as an Alert today |
+| `fusion.event` | — | `StoreStage` | partial: Events reach the store via `Alert.source_event`; standalone publish pending the same fix as `fusion.count` |
+| `capture.frame` / `capture.depth` | `CaptureStage` | — | deferred: ZED→DeepStream hybrid seam (ADR-0002, #6) + depth fusion (#9), gated on the ZED cable (#54) |
+| `fusion.depth_bbox` | — | — | deferred: depth fusion (#9) |
+| `infer.identity` | — | — | deferred: on-demand ReID (#17, ADR-0003) |
+| `infer.pose` | — | — | deferred: V2 |
+| `infer.detection` | — | — | unused: DeepStream emits tracks, not raw detections |
+
+Note: the durable EventStore is written by `StoreStage` and bounded by
+`RetentionStage` (both sqlite-backend, in `app._build_stages`). The read-only
+operator dashboard (`output/dashboard/`, #18) consumes that store; **its launcher
+is not yet wired** (tracked separately) — `serve()` exists but no entrypoint calls
+it.
