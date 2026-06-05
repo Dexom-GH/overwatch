@@ -25,6 +25,7 @@ import math
 from typing import Dict, Optional
 
 from overwatch.bus.schemas import Alert, Event, HealthSignal, Pose, Track
+from overwatch.fusion.phrasing import animal_noun, human_duration
 from overwatch.fusion.zones import Point, bbox_centroid
 
 _IMMOBILITY_SEVERITY = "warning"
@@ -101,12 +102,17 @@ class HealthMonitor:
         if signal.kind != "immobility":
             return None
         secs = signal.detail.get("stationary_seconds")
-        for_str = " for {:.0f}s".format(secs) if isinstance(secs, (int, float)) else ""
+        animal = animal_noun(signal.detail.get("class_name"))
+        for_str = (
+            " for {}".format(human_duration(secs)) if isinstance(secs, (int, float)) else ""
+        )
         return Alert(
             timestamp=signal.timestamp,
             severity=_IMMOBILITY_SEVERITY,
             title="Immobility",
-            message="Track {} immobile{}".format(signal.track_id, for_str),
+            message="{} #{} has been stationary{}".format(
+                animal, signal.track_id, for_str
+            ),
             source_event=Event(
                 timestamp=signal.timestamp,
                 kind="immobility",

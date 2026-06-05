@@ -114,6 +114,40 @@ def plan_source(uri: str) -> SourceSpec:
     )
 
 
+def load_detector_labels(pgie_config_path: str) -> "Optional[List[str]]":
+    """Class names (in class_id order) from an nvinfer config's ``labelfile-path``.
+
+    Lets alerts name the animal (e.g. "sheep") instead of a numeric class id (#91).
+    The label-file path is resolved relative to the config's directory (DeepStream
+    convention). Pure / host-testable. Returns ``None`` when the config or label
+    file is missing/empty — callers fall back to numeric ids.
+    """
+    import os
+
+    try:
+        with open(pgie_config_path, encoding="utf-8") as cfg:
+            labelfile = None
+            for raw in cfg:
+                line = raw.strip()
+                if line.startswith("labelfile-path"):
+                    labelfile = line.split("=", 1)[1].strip()
+                    break
+    except OSError:
+        return None
+    if not labelfile:
+        return None
+    if not os.path.isabs(labelfile):
+        labelfile = os.path.join(
+            os.path.dirname(os.path.abspath(pgie_config_path)), labelfile
+        )
+    try:
+        with open(labelfile, encoding="utf-8") as f:
+            names = [ln.strip() for ln in f if ln.strip()]
+    except OSError:
+        return None
+    return names or None
+
+
 class DeepStreamPipeline:  # pragma: no cover - target-only (GStreamer/pyds)
     """Owns the detect+track GStreamer pipeline lifecycle (#15).
 

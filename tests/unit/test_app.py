@@ -146,6 +146,22 @@ class TestBuildStages:
         inference = stages[1]
         assert inference._source == "rtsp://h/s"
 
+    def test_build_stages_passes_detector_labels_to_inference(self, tmp_path):
+        # #91: class labels resolved from the detector config reach the
+        # InferenceStage so Track.class_name is a name, not a numeric id.
+        (tmp_path / "labels.txt").write_text("person\ncar\n", encoding="utf-8")
+        pgie = tmp_path / "pgie.txt"
+        pgie.write_text("[property]\nlabelfile-path=labels.txt\n", encoding="utf-8")
+        cfg = _full_cfg()
+        cfg.inference.detector_config = str(pgie)
+        stages = _build_stages(cfg, _FakeBus())
+        assert stages[1]._labels == ["person", "car"]
+
+    def test_build_stages_tolerates_missing_labelfile(self):
+        # A detector config without a readable labelfile -> labels None, no crash.
+        stages = _build_stages(_full_cfg(), _FakeBus())  # detector_config "nvinfer.txt"
+        assert stages[1]._labels is None
+
 
 class TestFusionStage:
     def test_subscribes_to_infer_track_and_publishes_alerts(self):

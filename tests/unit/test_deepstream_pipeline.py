@@ -8,7 +8,11 @@ is ingested via a single dynamic-pad ``nvurisrcbin``. Linking those elements and
 running them stays target-only (verified on the Jetson).
 """
 
-from overwatch.inference.deepstream.pipeline import classify_source, plan_source
+from overwatch.inference.deepstream.pipeline import (
+    classify_source,
+    load_detector_labels,
+    plan_source,
+)
 
 
 class TestClassifySource:
@@ -68,3 +72,24 @@ class TestPlanSourceRtsp:
         # nvurisrcbin exposes its decoded src pad dynamically -> linked on pad-added.
         assert spec.dynamic_src is True
         assert spec.mux_src_name == "src"
+
+
+class TestLoadDetectorLabels:
+    """#91: class names for alerts come from the detector config's labelfile-path."""
+
+    def test_reads_labelfile_relative_to_config(self, tmp_path):
+        (tmp_path / "labels.txt").write_text("person\ncar\nsheep\n", encoding="utf-8")
+        cfg = tmp_path / "pgie.txt"
+        cfg.write_text(
+            "[property]\nlabelfile-path=labels.txt\nnum-detected-classes=3\n",
+            encoding="utf-8",
+        )
+        assert load_detector_labels(str(cfg)) == ["person", "car", "sheep"]
+
+    def test_none_when_no_labelfile_path(self, tmp_path):
+        cfg = tmp_path / "pgie.txt"
+        cfg.write_text("[property]\nnum-detected-classes=3\n", encoding="utf-8")
+        assert load_detector_labels(str(cfg)) is None
+
+    def test_none_when_config_missing(self, tmp_path):
+        assert load_detector_labels(str(tmp_path / "nope.txt")) is None

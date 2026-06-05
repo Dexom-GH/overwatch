@@ -86,13 +86,30 @@ def test_to_alert_maps_fence_crossing():
     det = EventDetector([_fence()])
     event = Event(
         timestamp=3.0, kind="fence_crossing", track_id=7, zone_id="north-gate",
-        detail={"direction": "in_to_out"},
+        detail={"direction": "in_to_out", "class_name": "sheep"},
     )
     alert = det.to_alert(event)
     assert alert is not None
     assert alert.severity == "warning"
     assert alert.source_event is event
-    assert "7" in alert.message and "north-gate" in alert.message
+    # operator-friendly: animal name + fence name + plain-language direction,
+    # no raw direction codes.
+    assert "Sheep" in alert.message
+    assert "north-gate" in alert.message
+    assert "leaving" in alert.message.lower()
+    assert "in_to_out" not in alert.message
+
+
+def test_to_alert_falls_back_to_animal_when_class_unknown():
+    det = EventDetector([_fence()])
+    event = Event(
+        timestamp=3.0, kind="fence_crossing", track_id=7, zone_id="gate",
+        detail={"direction": "out_to_in"},
+    )
+    alert = det.to_alert(event)
+    assert alert is not None
+    assert "Animal" in alert.message          # no class_name -> generic noun
+    assert "entering" in alert.message.lower()  # out_to_in -> entering
 
 
 def test_to_alert_ignores_non_fence_events():

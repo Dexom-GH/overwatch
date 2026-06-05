@@ -80,12 +80,15 @@ def test_per_track_state_is_independent():
 def test_to_alert_maps_immobility_signal():
     mon = HealthMonitor(immobility_seconds=10.0)
     sig = HealthSignal(track_id=7, timestamp=12.0, kind="immobility", score=1.0,
-                       detail={"stationary_seconds": 12.0})
+                       detail={"stationary_seconds": 725.0, "class_name": "goat"})
     alert = mon.to_alert(sig)
     assert alert is not None
     assert alert.severity == "warning"
-    assert "7" in alert.message
-    assert "immobil" in alert.message.lower()
+    # operator-friendly: animal name + human-readable duration, not raw "725s".
+    assert "Goat" in alert.message
+    assert "stationary" in alert.message.lower()
+    assert "12 min" in alert.message
+    assert "725" not in alert.message
 
 
 def test_immobility_end_to_end_host_chain():
