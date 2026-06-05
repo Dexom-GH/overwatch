@@ -8,7 +8,7 @@ pure host logic — the live pyds pipeline is target-only, but the
 stream->frames->rules->alert glue is unit-tested here.
 """
 
-from overwatch.bus.schemas import Alert, Track
+from overwatch.bus.schemas import Alert, Event, HealthSignal, Track, ZoneCount
 from overwatch.config.schema import FenceLine, Zone
 from overwatch.fusion.mono_alerts import FrameAssembler, MonoAlertFanout
 
@@ -66,6 +66,7 @@ def _fanout(sink, **kw):
         sink, fences=[fence], zones=[zone],
         zone_thresholds={"pen": 2}, immobility_seconds=kw.get("imm", 5.0),
         move_threshold_px=2.0, clock=kw.get("clock", lambda: 0.0),
+        record_sink=kw.get("records"),
     )
 
 
@@ -109,3 +110,50 @@ def test_fanout_sink_receives_alert_objects():
         fan.on_track(_track(tid, cx, cy, frame_id=0))
     fan.flush()
     assert alerts and all(isinstance(a, Alert) for a in alerts)
+
+
+# -- record_sink: raw fusion records for the durable store / dashboard (#111) --
+
+def test_record_sink_receives_fence_event():
+    records = []
+    fan = _fanout(lambda a: None, records=records.append)
+    fan.on_track(_track(1, 10, 5, frame_id=0))   # below
+    fan.on_track(_track(1, 10, 15, frame_id=1))  # above -> crossing
+    fan.flush()
+    assert any(isinstance(r, Event) and r.kind == "fence_crossing" for r in records)
+
+
+def test_record_sink_emits_zone_count_on_change_only():
+    records = []
+    fan = _fanout(lambda a: None, records=records.append)
+    # frame 0: 3 tracks in pen -> count 3
+    for tid, (cx, cy) in enumerate([(5, 5), (6, 6), (7, 7)], start=1):
+        fan.on_track(_track(tid, cx, cy, frame_id=0))
+    # frame 1: same 3 -> count unchanged -> no new ZoneCount record
+    for tid, (cx, cy) in enumerate([(5, 5), (6, 6), (7, 7)], start=1):
+        fan.on_track(_track(tid, cx, cy, frame_id=1))
+    fan.on_track(_track(1, 5, 5, frame_id=2))  # frame 2: pen drops to 1 -> change
+    fan.flush()
+    pen_counts = [r.count for r in records if isinstance(r, ZoneCount) and r.zone_id == "pen"]
+    assert pen_counts == [3, 1]  # emitted on first observation and on change, not when steady
+
+
+def test_record_sink_emits_health_signal_on_immobility():
+    records = []
+    clock = [0.0]
+    fan = _fanout(lambda a: None, records=records.append, imm=10.0, clock=lambda: clock[0])
+    for fid in range(4):
+        clock[0] = fid * 5.0
+        fan.on_track(_track(1, 5, 5, frame_id=fid))
+    fan.flush()
+    assert any(isinstance(r, HealthSignal) for r in records)
+
+
+def test_record_sink_is_optional():
+    # No record_sink -> alerts still flow, no crash.
+    alerts = []
+    fan = _fanout(alerts.append)  # records=None
+    fan.on_track(_track(1, 10, 5, frame_id=0))
+    fan.on_track(_track(1, 10, 15, frame_id=1))
+    fan.flush()
+    assert alerts

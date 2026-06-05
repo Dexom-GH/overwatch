@@ -27,7 +27,7 @@ from overwatch.bus import topics
 from overwatch.bus.schemas import Alert, Event, Frame, HealthSignal, Track, ZoneCount
 from overwatch.capture.base import CaptureSource
 from overwatch.capture.rtsp_source import RtspSource
-from overwatch.config.schema import AppConfig, RtspSourceConfig
+from overwatch.config.schema import AppConfig, RtspSourceConfig, Zone
 from overwatch.output.retention import RetentionPolicy
 from overwatch.output.sqlite_store import SqliteEventStore
 
@@ -71,6 +71,26 @@ class _FakeBus:
             h(message)
 
 
+class _SyncBus:
+    """A bus that delivers synchronously on publish — for deterministic wiring tests."""
+
+    def __init__(self):
+        self.handlers = {}
+
+    def publish(self, topic, message):
+        for h in self.handlers.get(topic, []):
+            h(message)
+
+    def subscribe(self, topic, handler):
+        self.handlers.setdefault(topic, []).append(handler)
+
+    def start(self):
+        pass
+
+    def close(self):
+        pass
+
+
 def _full_cfg(source_id="cam-1"):
     """A validated AppConfig with an RTSP source + one fence (host-constructible)."""
     return AppConfig.model_validate(
@@ -95,6 +115,16 @@ def _full_cfg(source_id="cam-1"):
             },
         }
     )
+
+
+def _cfg_with_zone():
+    """Like _full_cfg but with a counting zone covering (0,0)-(40,40) (#111 tests)."""
+    cfg = _full_cfg()
+    cfg.fusion.zones = [
+        Zone(name="pen", polygon=[(0.0, 0.0), (40.0, 0.0), (40.0, 40.0), (0.0, 40.0)],
+             space="image")
+    ]
+    return cfg
 
 
 def _track(track_id, cx, cy, frame_id):
@@ -191,6 +221,45 @@ class TestFusionStage:
         stage.run(stop)  # flushes the trailing frame
         alert_topics = [t for t, _ in bus.published]
         assert topics.OUTPUT_ALERT in alert_topics
+
+    def test_publishes_raw_records_on_their_fusion_topics(self):
+        # #111: the raw monitoring records reach the durable topics, not just alerts.
+        bus = _FakeBus()
+        stage = FusionStage(bus, _full_cfg())
+        stage._publish_record(ZoneCount(zone_id="pen", timestamp=1.0, count=3))
+        stage._publish_record(HealthSignal(track_id=1, timestamp=2.0, kind="immobility", score=1.0))
+        stage._publish_record(Event(timestamp=3.0, kind="fence_crossing"))
+        by_topic = {t for t, _ in bus.published}
+        assert {topics.FUSION_COUNT, topics.FUSION_HEALTH, topics.FUSION_EVENT} <= by_topic
+
+    def test_publishes_fusion_event_on_crossing(self):
+        bus = _FakeBus()
+        stage = FusionStage(bus, _full_cfg())
+        bus.deliver(topics.INFER_TRACK, _track(1, 10, 5, frame_id=0))
+        bus.deliver(topics.INFER_TRACK, _track(1, 10, 15, frame_id=1))
+        stop = threading.Event()
+        stop.set()
+        stage.run(stop)  # flush -> crossing event published
+        assert topics.FUSION_EVENT in [t for t, _ in bus.published]
+
+    def test_end_to_end_fusion_to_store_to_dashboard(self):
+        # #111 payoff: tracks -> fusion publishes raw records -> StoreStage persists
+        # -> the dashboard's zone-count + event panels populate. Synchronous bus,
+        # so this is deterministic (no threads/timing).
+        from overwatch.output.dashboard.view import latest_zone_counts
+
+        bus = _SyncBus()
+        store = SqliteEventStore(":memory:")
+        FusionStage(bus, _cfg_with_zone())   # publishes fusion.count/event + output.alert
+        StoreStage(bus, store=store)         # persists them
+        # track in the pen zone, crossing the fence (below -> above)
+        bus.publish(topics.INFER_TRACK, _track(1, 10, 5, frame_id=0))
+        bus.publish(topics.INFER_TRACK, _track(1, 10, 15, frame_id=1))
+        bus.publish(topics.INFER_TRACK, _track(1, 10, 15, frame_id=2))  # flush frame 1
+        counts = latest_zone_counts(store, end=1e9)
+        assert counts and counts[0].zone_id == "pen" and counts[0].count >= 1
+        events = list(store.query("event", 0.0, 1e9))
+        assert any(e.kind == "fence_crossing" for e in events)
 
 
 class TestOutputStage:
