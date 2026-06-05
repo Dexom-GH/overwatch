@@ -65,6 +65,7 @@ output:
     retention:                # bound growth on the 512 GB NVMe (#40; docs/STORAGE.md)
       max_age_days: 90        # prune EventStore records older than this
       max_rows: null          # optional hard row cap (null = age-only)
+      interval_seconds: 3600  # how often the supervised retention sweeper runs (#106)
   throttle:
     # Shared alert de-dup / rate-limit (#42). De-dup key = (event_type, zone_id|track_id).
     cooldown_seconds: 60      # collapse identical alerts within this window (0 disables)

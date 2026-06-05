@@ -39,11 +39,12 @@ main knob; EventStore rows are tiny and bounded by age.
   budget. (The recordings/crops directory byte budgets are configured per-directory
   when those features land — #11 recordings, the ReID crop path; the policy +
   enforcement are ready now.)
-- **When to run:** call `enforce_event_store` (and `enforce_directory` for the
-  recordings/crops dirs) on a timer or after writes. The periodic enforcement
-  *scheduler* — wiring this into the running app's lifecycle — is the remaining
-  integration step; the policy, config mapping, and enforcement primitives are
-  complete and host-tested.
+- **When it runs:** the supervised **`RetentionStage`** (`app.py`, #106) sweeps the
+  EventStore every `output.store.retention.interval_seconds` (default hourly),
+  calling `enforce_event_store` with the config-derived policy; it joins the
+  pipeline's clean shutdown. Directory enforcement (`enforce_directory` for the
+  recordings/crops dirs) extends the same stage once those dirs are configured
+  (#11 recordings, the ReID crop path).
 
 ## On-device verification (target — deferred)
 

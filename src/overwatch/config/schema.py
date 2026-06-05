@@ -228,6 +228,8 @@ class RetentionConfig(_Strict):
 
     max_age_days: Optional[int] = Field(default=90, gt=0)
     max_rows: Optional[int] = Field(default=None, gt=0)
+    # How often the supervised retention sweeper enforces the budget (#106).
+    interval_seconds: float = Field(default=3600.0, gt=0.0)
 
 
 class StoreConfig(_Strict):

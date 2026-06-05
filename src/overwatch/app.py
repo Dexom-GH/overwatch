@@ -135,6 +135,64 @@ class OutputStage(Stage):
         stop.wait()
 
 
+class RetentionStage(Stage):
+    """Periodically enforces the EventStore retention budget (#106). Host-runnable.
+
+    A supervised sweeper: every ``interval_seconds`` it applies the configured
+    :class:`~overwatch.output.retention.RetentionPolicy` to the durable EventStore
+    (age prune + row cap, via ``enforce_event_store``) so 24/7 logging cannot fill
+    the NVMe (#40, docs/STORAGE.md). The wait is on the ``stop`` event, so shutdown
+    is immediate and clean — no leaked thread.
+
+    The store is opened **lazily in** :meth:`run` from ``store_path`` (so building
+    the stage has no filesystem side effect), unless a ``store`` is injected (tests).
+    """
+
+    def __init__(
+        self,
+        policy: "Any",
+        *,
+        interval_seconds: float,
+        store: "Optional[Any]" = None,
+        store_path: "Optional[str]" = None,
+        now: "Optional[Any]" = None,
+        name: str = "retention",
+    ) -> None:
+        import time
+
+        self._policy = policy
+        self._interval = interval_seconds
+        self._store = store
+        self._store_path = store_path
+        self._now = now if now is not None else time.time
+        self._name = name
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def run(self, stop: "threading.Event") -> None:
+        from overwatch.output.retention import enforce_event_store
+
+        store = self._store
+        own = False
+        if store is None:
+            from overwatch.output.sqlite_store import SqliteEventStore
+
+            if not self._store_path:
+                raise RuntimeError("RetentionStage needs a store or a store_path")
+            store = SqliteEventStore(self._store_path)
+            own = True
+        try:
+            while not stop.wait(self._interval):
+                removed = enforce_event_store(store, self._policy, now=self._now())
+                if removed:
+                    _LOG.info("retention sweep pruned %d EventStore rows", removed)
+        finally:
+            if own:
+                store.close()
+
+
 class InferenceStage(Stage):
     """Runs the DeepStream detect+track pipeline, publishing ``infer.track``. TARGET-ONLY.
 
@@ -277,6 +335,20 @@ def _build_stages(cfg: "AppConfig", bus: "MessageBus") -> "List[Stage]":
     )
     stages.append(FusionStage(bus, cfg))
     stages.append(OutputStage(bus, cfg))
+
+    # Retention sweeper (#106): bound the durable EventStore during 24/7 operation.
+    # SQLite backend only; opens the store lazily in run() from the configured path.
+    store_cfg = cfg.output.store
+    if store_cfg.backend == "sqlite" and store_cfg.path:
+        from overwatch.output.retention import RetentionPolicy
+
+        stages.append(
+            RetentionStage(
+                RetentionPolicy.from_config(store_cfg.retention),
+                interval_seconds=store_cfg.retention.interval_seconds,
+                store_path=store_cfg.path,
+            )
+        )
     return stages
 
 
@@ -331,7 +403,7 @@ def main(config_path: "Optional[str]" = None) -> None:  # pragma: no cover - tar
     run_pipeline(supervisor)
 
 
-__all__ = ["CaptureStage", "build_supervisor", "run_pipeline", "main"]
+__all__ = ["CaptureStage", "RetentionStage", "build_supervisor", "run_pipeline", "main"]
 
 
 if __name__ == "__main__":  # pragma: no cover
