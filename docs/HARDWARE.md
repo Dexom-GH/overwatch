@@ -13,13 +13,19 @@ kit changes. Build/version facts live in [SOFTWARE_STACK.md](SOFTWARE_STACK.md).
 | AI performance | ~21 TOPS |
 | GPU | 384-core Volta + 48 Tensor cores |
 | CPU | 6-core NVIDIA Carmel ARMv8.2 (64-bit) |
-| Storage | **512 GB NVMe SSD** (installed) |
+| Storage | **512 GB NVMe SSD** (installed, M.2 Key M) |
+| I/O | **4× USB 3.x Type-A**; M.2 Key E (WiFi/BT) + M.2 Key M (NVMe); Gigabit Ethernet |
 | Carrier | Seeed reComputer J2022 |
 
 **Storage note:** the 512 GB NVMe resolves the earlier eMMC space concern. OS,
 work tree, models, and data now share ample room — the DeepStream + ZED SDK +
 PyTorch footprint is no longer a constraint. Put models under `models/` and
 captured data under `data/` (both gitignored).
+
+**Sensor I/O note (#54):** the ZED 2i is a USB-3.0 camera and connects to one of
+the **4× USB 3.x** Type-A ports — the device has the ports; #54 is about cabling
+the ZED onto a USB-3.x (not USB-2) port so it enumerates at full bandwidth. The
+NVMe occupies the M.2 Key M slot; Key E is available for the WiFi/BT module.
 
 **Architecture ceiling:** Xavier NX is an ARMv8.2 / Volta part. This caps the
 software stack at **JetPack 5.1.x** — JetPack 6 is Orin-only. See
