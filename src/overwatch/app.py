@@ -278,6 +278,77 @@ class RetentionStage(Stage):
                 store.close()
 
 
+class DashboardStage(Stage):
+    """Serves the read-only operator dashboard as a supervised stage (#110). Host-runnable.
+
+    Wires the #18 dashboard server (`output/dashboard/server.py`) into the one
+    supervised app process so the operator screen comes up and shuts down with the
+    pipeline — `serve()` exists but otherwise has no launcher. Runs the HTTP
+    `serve_forever` on its own thread; on ``stop`` it calls ``shutdown`` +
+    ``server_close`` and joins (no leaked socket/thread).
+
+    The server (and its read-only store handle) are built **lazily in** :meth:`run`
+    from config (so constructing the stage binds no port), unless a ``server`` is
+    injected (tests). For a standalone dashboard process, ``server.serve(cfg)``
+    remains the alternative.
+    """
+
+    def __init__(
+        self,
+        cfg: "AppConfig",
+        *,
+        server: "Optional[Any]" = None,
+        store: "Optional[Any]" = None,
+        name: str = "dashboard",
+    ) -> None:
+        self._cfg = cfg
+        self._server = server
+        self._store = store
+        self._name = name
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def run(self, stop: "threading.Event") -> None:
+        server = self._server
+        own_store = None
+        if server is None:
+            from overwatch.output.dashboard.server import make_server
+
+            dash = self._cfg.output.dashboard
+            store = self._store
+            if store is None:
+                from overwatch.output.sqlite_store import SqliteEventStore
+
+                store_path = self._cfg.output.store.path
+                if not store_path:
+                    raise RuntimeError("DashboardStage needs a sqlite store path")
+                store = SqliteEventStore(store_path)
+                own_store = store
+            server = make_server(
+                store,
+                host=dash.host,
+                port=dash.port,
+                window_seconds=dash.window_seconds,
+                refresh_seconds=dash.refresh_seconds,
+                alert_limit=dash.alert_limit,
+                event_limit=dash.event_limit,
+            )
+        thread = threading.Thread(
+            target=server.serve_forever, name="dashboard-http", daemon=True
+        )
+        thread.start()
+        try:
+            stop.wait()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5.0)
+            if own_store is not None:
+                own_store.close()
+
+
 class InferenceStage(Stage):
     """Runs the DeepStream detect+track pipeline, publishing ``infer.track``. TARGET-ONLY.
 
@@ -436,6 +507,8 @@ def _build_stages(cfg: "AppConfig", bus: "MessageBus") -> "List[Stage]":
                 store_path=store_cfg.path,
             )
         )
+        if cfg.output.dashboard.enabled:
+            stages.append(DashboardStage(cfg))
     return stages
 
 
@@ -494,6 +567,7 @@ __all__ = [
     "CaptureStage",
     "StoreStage",
     "RetentionStage",
+    "DashboardStage",
     "build_supervisor",
     "run_pipeline",
     "main",
