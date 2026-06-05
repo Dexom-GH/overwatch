@@ -27,7 +27,7 @@ they stay a faithful upstream copy and stay easy to re-sync.
 | **OS / arch** | Ubuntu 24.04, x86 / modern Jetson | Ubuntu 20.04, **ARM64 Xavier NX** | — |
 | **Python** | one `build/.venv_optimum` with `pip install torch optimum` | Python **3.8** target; **never pip `torch`** (host or device). | Export ONNX on **host** (Python 3.12). Build TRT on **device** in `/srv/farmproject/venv` (already has torch/tensorrt/pyds). |
 | **ONNX opset** | 17/18; prefer dynamo exporter | TRT 8.5 **rejects opset ≥ 17** | Force **`dynamo=False, opset_version=12`** and a self-contained ONNX. The upstream "accept opset 18 / prefer dynamo" advice is **the opposite of what we need** — ignore it. |
-| **Engine workspace** | `--memPoolSize=workspace:32768M` | ~8 GB **unified** memory shared with the OS | Use **2048–4096 MiB**. On TRT 8.5 the trtexec flag is commonly `--workspace=4096` (MiB); confirm `trtexec --help` on-device. |
+| **Engine workspace** | `--memPoolSize=workspace:32768M` | 16 GB **unified** memory shared with the OS | Use **2048–4096 MiB**. On TRT 8.5 the trtexec flag is commonly `--workspace=4096` (MiB); confirm `trtexec --help` on-device. |
 | **Batch / streams** | `MAX_BS=64`, double to 256+, derive `PEAK_GPU_STREAMS` | **one ZED camera** | Build a **batch-1** (or small fixed) engine. **Skip** the iterative doubling loop and the entire PEAK_GPU_STREAMS / multi-stream-sweep apparatus (Step 5 scaling, Step 7). |
 | **Encoder** | `nvv4l2h264enc` primary, theora fallback | `nvv4l2h264enc` is the Jetson HW encoder | Upstream primary path is correct — **keep it**. |
 | **Sample video** | `/opt/nvidia/.../sample_720p.mp4` | same path on the device | Fine for a quick single-stream visual check; the real source is the ZED. |

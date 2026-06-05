@@ -54,7 +54,7 @@ These are the traps that will silently waste a device session. Full detail and t
 |-------|----------|---------------------------|
 | ONNX opset | 17/18, prefer dynamo exporter | **`dynamo=False, opset_version=12`** — TRT 8.5 rejects opset ≥ 17. Proven in #76. → memory `yolov8-onnx-export-for-trt85` |
 | TRT / trtexec | TensorRT 10.x | **TensorRT 8.5**; flags differ (`--workspace` vs `--memPoolSize`, see below) |
-| Workspace | `--memPoolSize=workspace:32768M` (32 GB) | Xavier NX shares **~8 GB unified memory** — use **2048–4096 MiB**. On TRT 8.5 the flag is often `--workspace=4096` (MiB) |
+| Workspace | `--memPoolSize=workspace:32768M` (32 GB) | Xavier NX shares **16 GB unified memory** — use **2048–4096 MiB**. On TRT 8.5 the flag is often `--workspace=4096` (MiB) |
 | `MAX_BS` / streams | start 64, double to 256+ | **1 ZED camera → batch-size 1.** The whole PEAK_GPU_STREAMS multi-stream sweep is moot here; build a `b1` (or small) engine |
 | Python venv | `build/.venv_optimum`, `pip install torch optimum` | **Never pip `torch` on host or device.** ONNX *export* runs on the **host** Python (3.12, see memory); TRT *build* runs **on-device** in the shared venv `/srv/farmproject/venv`. → memory `jetson-device-access`, `host-python-interpreter` |
 | Encoder | `nvv4l2h264enc` primary, theora fallback | `nvv4l2h264enc` **is** the Jetson encoder — the upstream primary path is correct here; keep it |
