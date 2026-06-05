@@ -7,6 +7,7 @@ capture spine a supervisable :class:`~overwatch.orchestrator.Stage`, and
 """
 
 import threading
+import time
 
 import numpy as np
 import pytest
@@ -16,6 +17,7 @@ from overwatch.app import (
     FusionStage,
     InferenceStage,
     OutputStage,
+    RetentionStage,
     _build_source,
     _build_stages,
     run_pipeline,
@@ -25,6 +27,8 @@ from overwatch.bus.schemas import Alert, Frame, Track
 from overwatch.capture.base import CaptureSource
 from overwatch.capture.rtsp_source import RtspSource
 from overwatch.config.schema import AppConfig, RtspSourceConfig
+from overwatch.output.retention import RetentionPolicy
+from overwatch.output.sqlite_store import SqliteEventStore
 
 
 def _frame(fid):
@@ -136,8 +140,16 @@ class TestBuildStages:
 
     def test_build_stages_wires_full_pipeline_in_order(self):
         stages = _build_stages(_full_cfg(), _FakeBus())
-        # capture -> inference -> fusion -> output (#38)
-        assert [s.name for s in stages] == ["capture:cam-1", "inference", "fusion", "output"]
+        # capture -> inference -> fusion -> output (#38) + retention sweeper (#106)
+        assert [s.name for s in stages] == [
+            "capture:cam-1", "inference", "fusion", "output", "retention"
+        ]
+
+    def test_build_stages_appends_retention_for_sqlite_store(self):
+        # The retention stage is wired from output.store.retention; constructing it
+        # must NOT open the DB (lazy in run()) so building stages has no side effect.
+        stages = _build_stages(_full_cfg(), _FakeBus())
+        assert isinstance(stages[-1], RetentionStage)
 
     def test_build_stages_feeds_rtsp_url_to_inference(self):
         # #84: the live RTSP URL must reach the DeepStream InferenceStage as its
@@ -206,6 +218,53 @@ class TestInferenceStage:
         # __init__ must not touch gi/pyds (deferred to run) so it builds on host.
         stage = InferenceStage(_FakeBus(), pgie_config="p.txt", source="rtsp://h/s")
         assert stage.name == "inference"
+
+
+def _wait_until(predicate, timeout=5.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.01)
+    return predicate()
+
+
+class TestRetentionStage:
+    def test_enforces_policy_periodically_then_stops_clean(self):
+        store = SqliteEventStore(":memory:")
+        for ts in (10.0, 20.0, 30.0):
+            store.record(Alert(timestamp=ts, severity="info", title="t", message="m"))
+        # row cap = 1 -> a sweep prunes down to the newest record.
+        stage = RetentionStage(
+            RetentionPolicy(max_count=1), interval_seconds=0.01, store=store,
+            now=lambda: 100.0,
+        )
+        assert stage.name == "retention"
+        stop = threading.Event()
+        t = threading.Thread(target=stage.run, args=(stop,), daemon=True)
+        t.start()
+        try:
+            pruned = _wait_until(
+                lambda: len(list(store.query("alert", 0.0, 200.0))) == 1, timeout=5.0
+            )
+            assert pruned, "retention stage did not enforce the policy"
+        finally:
+            stop.set()
+            t.join(timeout=5.0)
+        assert not t.is_alive()  # clean shutdown, no leaked thread
+
+    def test_returns_immediately_when_already_stopped(self):
+        store = SqliteEventStore(":memory:")
+        for ts in (10.0, 20.0):
+            store.record(Alert(timestamp=ts, severity="info", title="t", message="m"))
+        stage = RetentionStage(
+            RetentionPolicy(max_count=1), interval_seconds=1000.0, store=store,
+            now=lambda: 100.0,
+        )
+        stop = threading.Event()
+        stop.set()
+        stage.run(stop)  # wait() returns at once -> no sweep
+        assert len(list(store.query("alert", 0.0, 200.0))) == 2  # untouched
 
 
 class _RecordingSupervisor:
