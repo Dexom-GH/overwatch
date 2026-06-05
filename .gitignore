@@ -31,3 +31,10 @@ dist/
 .ruff_cache/
 .venv/
 venv/
+
+# Training datasets (downloaded; not committed) — #77
+datasets/
+
+# Ultralytics training outputs / weights (#77)
+runs/
+*.pt

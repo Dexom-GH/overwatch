@@ -97,6 +97,33 @@ def load_animal_classes(path: "Optional[Path]" = None) -> "List[AnimalClass]":
     return parse_animal_classes(data)
 
 
+# The V1 farm detector (#77) is trained on tier 1-2 only (sheep/goat/poultry);
+# tier-3 (rabbit, guinea_pig) are demoted to V2 (#90) but keep canonical ids here.
+V1_DETECTOR_MAX_TIER = 2
+
+
+def detector_classes(
+    classes: "Optional[List[AnimalClass]]" = None,
+) -> "List[AnimalClass]":
+    """Classes the V1 detector ships (#77): tier <= ``V1_DETECTOR_MAX_TIER``.
+
+    ``labels.txt`` and the nvinfer ``num-detected-classes`` describe THIS subset,
+    not the full canonical map in ``animals.yaml`` (which reserves V2 ids). Asserts
+    the subset's ``class_id`` values are contiguous ``0..M-1`` — nvinfer maps a
+    detection to a label positionally, so a tier-3 class at a low id would break it.
+    """
+    src = classes if classes is not None else load_animal_classes()
+    det = sorted(
+        (c for c in src if c.tier <= V1_DETECTOR_MAX_TIER), key=lambda c: c.class_id
+    )
+    ids = [c.class_id for c in det]
+    if ids != list(range(len(ids))):
+        raise ValueError(
+            "V1 detector class_ids must be a contiguous 0..M-1 range, got {}".format(ids)
+        )
+    return det
+
+
 def render_labels(classes: "List[AnimalClass]") -> str:
     """Render the labels.txt body: one name per line, class-id order, LF, trailing \\n."""
     ordered = sorted(classes, key=lambda c: c.class_id)
@@ -118,9 +145,8 @@ def read_nvinfer_num_detected_classes(path: "Optional[Path]" = None) -> "Optiona
 
 
 def labels_out_of_sync() -> bool:
-    """True if committed labels.txt diverges from animals.yaml (names or order)."""
-    classes = load_animal_classes()
-    return read_labels_file() != [c.name for c in classes]
+    """True if committed labels.txt diverges from the V1 detector classes (#77)."""
+    return read_labels_file() != [c.name for c in detector_classes()]
 
 
 def write_labels(classes: "List[AnimalClass]", path: "Optional[Path]" = None) -> None:
@@ -139,10 +165,10 @@ def _main(argv: "Optional[List[str]]" = None) -> int:
     group.add_argument("--check", action="store_true", help="exit 1 if out of sync")
     args = parser.parse_args(argv)
 
-    classes = load_animal_classes()
+    classes = detector_classes()  # V1 detector subset (#77): tier 1-2
     if args.write:
         write_labels(classes)
-        print("wrote {} ({} classes)".format(LABELS_TXT, len(classes)))
+        print("wrote {} ({} V1 detector classes)".format(LABELS_TXT, len(classes)))
         return 0
     if labels_out_of_sync():
         print("labels.txt is OUT OF SYNC with animals.yaml; run --write")
@@ -155,6 +181,8 @@ __all__ = [
     "AnimalClass",
     "parse_animal_classes",
     "load_animal_classes",
+    "detector_classes",
+    "V1_DETECTOR_MAX_TIER",
     "render_labels",
     "read_labels_file",
     "read_nvinfer_num_detected_classes",
