@@ -18,12 +18,13 @@ from overwatch.app import (
     InferenceStage,
     OutputStage,
     RetentionStage,
+    StoreStage,
     _build_source,
     _build_stages,
     run_pipeline,
 )
 from overwatch.bus import topics
-from overwatch.bus.schemas import Alert, Frame, Track
+from overwatch.bus.schemas import Alert, Event, Frame, HealthSignal, Track, ZoneCount
 from overwatch.capture.base import CaptureSource
 from overwatch.capture.rtsp_source import RtspSource
 from overwatch.config.schema import AppConfig, RtspSourceConfig
@@ -140,15 +141,17 @@ class TestBuildStages:
 
     def test_build_stages_wires_full_pipeline_in_order(self):
         stages = _build_stages(_full_cfg(), _FakeBus())
-        # capture -> inference -> fusion -> output (#38) + retention sweeper (#106)
+        # capture -> inference -> fusion -> output (#38) + store sink (#108)
+        # + retention sweeper (#106)
         assert [s.name for s in stages] == [
-            "capture:cam-1", "inference", "fusion", "output", "retention"
+            "capture:cam-1", "inference", "fusion", "output", "store", "retention"
         ]
 
-    def test_build_stages_appends_retention_for_sqlite_store(self):
-        # The retention stage is wired from output.store.retention; constructing it
-        # must NOT open the DB (lazy in run()) so building stages has no side effect.
+    def test_build_stages_appends_store_and_retention_for_sqlite(self):
+        # Both durable-tier stages are wired from output.store; constructing them
+        # must NOT open the DB (lazy) so building stages has no filesystem side effect.
         stages = _build_stages(_full_cfg(), _FakeBus())
+        assert isinstance(stages[-2], StoreStage)
         assert isinstance(stages[-1], RetentionStage)
 
     def test_build_stages_feeds_rtsp_url_to_inference(self):
@@ -218,6 +221,49 @@ class TestInferenceStage:
         # __init__ must not touch gi/pyds (deferred to run) so it builds on host.
         stage = InferenceStage(_FakeBus(), pgie_config="p.txt", source="rtsp://h/s")
         assert stage.name == "inference"
+
+
+class TestStoreStage:
+    def test_name_is_store(self):
+        assert StoreStage(_FakeBus(), store=SqliteEventStore(":memory:")).name == "store"
+
+    def test_persists_alert_and_its_source_event(self):
+        bus = _FakeBus()
+        store = SqliteEventStore(":memory:")
+        StoreStage(bus, store=store)
+        assert topics.OUTPUT_ALERT in bus.handlers  # subscribed in __init__
+        event = Event(timestamp=5.0, kind="fence_crossing", track_id=7, zone_id="gate")
+        bus.deliver(topics.OUTPUT_ALERT, Alert(
+            timestamp=5.0, severity="warning", title="Fence crossing", message="m",
+            source_event=event,
+        ))
+        assert len(list(store.query("alert", 0.0, 100.0))) == 1
+        events = list(store.query("event", 0.0, 100.0))
+        assert len(events) == 1 and events[0].kind == "fence_crossing"
+
+    def test_alert_without_source_event_records_only_the_alert(self):
+        bus = _FakeBus()
+        store = SqliteEventStore(":memory:")
+        StoreStage(bus, store=store)
+        bus.deliver(topics.OUTPUT_ALERT, Alert(
+            timestamp=1.0, severity="info", title="t", message="m",
+        ))
+        assert len(list(store.query("alert", 0.0, 100.0))) == 1
+        assert list(store.query("event", 0.0, 100.0)) == []
+
+    def test_persists_raw_fusion_records_when_published(self):
+        # Forward-compatible: the sink already subscribes the fusion record topics,
+        # so once fusion publishes them (separate issue) they are persisted with no
+        # further sink change.
+        bus = _FakeBus()
+        store = SqliteEventStore(":memory:")
+        StoreStage(bus, store=store)
+        bus.deliver(topics.FUSION_COUNT, ZoneCount(zone_id="pen-A", timestamp=2.0, count=4))
+        bus.deliver(topics.FUSION_HEALTH, HealthSignal(track_id=1, timestamp=3.0, kind="immobility", score=1.0))
+        bus.deliver(topics.FUSION_EVENT, Event(timestamp=4.0, kind="fence_crossing"))
+        assert len(list(store.query("zone_count", 0.0, 100.0))) == 1
+        assert len(list(store.query("health_signal", 0.0, 100.0))) == 1
+        assert len(list(store.query("event", 0.0, 100.0))) == 1
 
 
 def _wait_until(predicate, timeout=5.0):

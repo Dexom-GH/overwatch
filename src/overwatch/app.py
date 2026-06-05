@@ -135,6 +135,73 @@ class OutputStage(Stage):
         stop.wait()
 
 
+class StoreStage(Stage):
+    """Persists the pipeline's durable records to the EventStore (#108). Host-runnable.
+
+    The durable-tier **writer**: subscribes the record topics and records each
+    message to the configured EventStore so the operator dashboard (#18) and the
+    retention sweeper (#106) have real data that survives a restart. Subscribes
+    ``output.alert`` (recording each ``Alert`` and, when present, its
+    ``source_event`` so fence/immobility ``Event`` rows populate) plus the raw
+    ``fusion.count`` / ``fusion.health`` / ``fusion.event`` topics — so the moment
+    fusion publishes those (tracked separately) they persist with no sink change.
+
+    The store opens **lazily on first record** (so constructing the stage has no
+    filesystem side effect) unless a ``store`` is injected (tests). Subscriptions
+    are registered in ``__init__`` (before the bus starts, per the ZeroMqBus
+    contract); ``run`` blocks until shutdown, then closes an owned store.
+    """
+
+    def __init__(
+        self,
+        bus: "MessageBus",
+        *,
+        store: "Optional[Any]" = None,
+        store_path: "Optional[str]" = None,
+        name: str = "store",
+    ) -> None:
+        from overwatch.bus import topics
+
+        self._store = store
+        self._store_path = store_path
+        self._own = store is None
+        self._name = name
+        self._lock = threading.Lock()
+        bus.subscribe(topics.OUTPUT_ALERT, self._on_alert)
+        for topic in (topics.FUSION_COUNT, topics.FUSION_HEALTH, topics.FUSION_EVENT):
+            bus.subscribe(topic, self._on_record)
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def _ensure_store(self) -> "Any":
+        if self._store is None:
+            with self._lock:
+                if self._store is None:
+                    if not self._store_path:
+                        raise RuntimeError("StoreStage needs a store or a store_path")
+                    from overwatch.output.sqlite_store import SqliteEventStore
+
+                    self._store = SqliteEventStore(self._store_path)
+        return self._store
+
+    def _on_record(self, message: "Any") -> None:
+        self._ensure_store().record(message)
+
+    def _on_alert(self, alert: "Any") -> None:
+        store = self._ensure_store()
+        store.record(alert)
+        source_event = getattr(alert, "source_event", None)
+        if source_event is not None:
+            store.record(source_event)
+
+    def run(self, stop: "threading.Event") -> None:
+        stop.wait()
+        if self._own and self._store is not None:
+            self._store.close()
+
+
 class RetentionStage(Stage):
     """Periodically enforces the EventStore retention budget (#106). Host-runnable.
 
@@ -336,12 +403,14 @@ def _build_stages(cfg: "AppConfig", bus: "MessageBus") -> "List[Stage]":
     stages.append(FusionStage(bus, cfg))
     stages.append(OutputStage(bus, cfg))
 
-    # Retention sweeper (#106): bound the durable EventStore during 24/7 operation.
-    # SQLite backend only; opens the store lazily in run() from the configured path.
+    # Durable tier (sqlite backend): the StoreStage writes records and the
+    # RetentionStage bounds them during 24/7 operation. Both open the store lazily
+    # from the configured path (no filesystem side effect at construction).
     store_cfg = cfg.output.store
     if store_cfg.backend == "sqlite" and store_cfg.path:
         from overwatch.output.retention import RetentionPolicy
 
+        stages.append(StoreStage(bus, store_path=store_cfg.path))
         stages.append(
             RetentionStage(
                 RetentionPolicy.from_config(store_cfg.retention),
@@ -403,7 +472,14 @@ def main(config_path: "Optional[str]" = None) -> None:  # pragma: no cover - tar
     run_pipeline(supervisor)
 
 
-__all__ = ["CaptureStage", "RetentionStage", "build_supervisor", "run_pipeline", "main"]
+__all__ = [
+    "CaptureStage",
+    "StoreStage",
+    "RetentionStage",
+    "build_supervisor",
+    "run_pipeline",
+    "main",
+]
 
 
 if __name__ == "__main__":  # pragma: no cover
