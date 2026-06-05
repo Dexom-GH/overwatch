@@ -35,6 +35,9 @@ if TYPE_CHECKING:  # annotations only — keep this module free of a runtime pyd
 
 FrameSink = Callable[[float, "List[Track]"], None]
 AlertSink = Callable[[Alert], None]
+# Receives the raw monitoring records (ZoneCount / HealthSignal / Event) for the
+# durable store + dashboard (#111); the runner maps each to its fusion.* topic.
+RecordSink = Callable[["object"], None]
 
 
 class FrameAssembler:
@@ -92,12 +95,19 @@ class MonoAlertFanout:
         immobility_seconds: float = 600.0,
         move_threshold_px: float = 25.0,
         clock: "Callable[[], float]" = time.monotonic,
+        record_sink: "Optional[RecordSink]" = None,
     ) -> None:
         self._sink = sink
+        # Optional sink for the raw monitoring records (ZoneCount / HealthSignal /
+        # Event) so the durable store + dashboard see them, not just Alerts (#111).
+        self._record_sink = record_sink
         self._events = EventDetector(fences or [])
         self._health = HealthMonitor(immobility_seconds, move_threshold_px=move_threshold_px)
         self._counter = ZoneCounter(zones or [], thresholds=zone_thresholds)
         self._assembler = FrameAssembler(self._on_frame, clock=clock)
+        # Last published count per zone, so fusion.count is emitted on change only
+        # (counts are computed every frame; publishing each would flood the store).
+        self._last_count: "Dict[str, int]" = {}
 
     def on_track(self, track: Track) -> None:
         """Feed one ``Track`` from the ``infer.track`` stream (bus dispatch thread)."""
@@ -109,17 +119,26 @@ class MonoAlertFanout:
 
     def _on_frame(self, timestamp: float, tracks: "List[Track]") -> None:
         for event in self._events.detect_fence_crossing(timestamp, tracks):
+            self._emit_record(event)
             self._emit(self._events.to_alert(event))
         for track in tracks:
             signal = self._health.update_immobility(timestamp, track)
             if signal is not None:
+                self._emit_record(signal)
                 self._emit(self._health.to_alert(signal))
         for zone_count in self._counter.count_2d(timestamp, tracks):
+            if self._last_count.get(zone_count.zone_id) != zone_count.count:
+                self._last_count[zone_count.zone_id] = zone_count.count
+                self._emit_record(zone_count)  # on change only
             self._emit(self._counter.to_alert(zone_count))
 
     def _emit(self, alert: "Optional[Alert]") -> None:
         if alert is not None:
             self._sink(alert)
 
+    def _emit_record(self, record: "object") -> None:
+        if self._record_sink is not None and record is not None:
+            self._record_sink(record)
 
-__all__ = ["FrameAssembler", "MonoAlertFanout", "FrameSink", "AlertSink"]
+
+__all__ = ["FrameAssembler", "MonoAlertFanout", "FrameSink", "AlertSink", "RecordSink"]

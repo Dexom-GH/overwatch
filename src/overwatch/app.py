@@ -88,6 +88,7 @@ class FusionStage(Stage):
             zones=cfg.fusion.zones,
             zone_thresholds=thresholds,
             immobility_seconds=cfg.fusion.health.immobility_seconds,
+            record_sink=self._publish_record,
         )
         bus.subscribe(topics.INFER_TRACK, self._fanout.on_track)
 
@@ -99,6 +100,23 @@ class FusionStage(Stage):
         from overwatch.bus import topics
 
         self._bus.publish(topics.OUTPUT_ALERT, alert)
+
+    def _publish_record(self, record: "Any") -> None:
+        """Publish a raw fusion record on its durable topic (#111).
+
+        Surfaces the monitoring records the fanout produces (counts on change,
+        health signals, events) so the durable store (#108) and dashboard (#18)
+        populate — not just the Alerts. No schema change; the topics already exist.
+        """
+        from overwatch.bus import topics
+        from overwatch.bus.schemas import Event, HealthSignal, ZoneCount
+
+        if isinstance(record, ZoneCount):
+            self._bus.publish(topics.FUSION_COUNT, record)
+        elif isinstance(record, HealthSignal):
+            self._bus.publish(topics.FUSION_HEALTH, record)
+        elif isinstance(record, Event):
+            self._bus.publish(topics.FUSION_EVENT, record)
 
     def run(self, stop: "threading.Event") -> None:
         stop.wait()
