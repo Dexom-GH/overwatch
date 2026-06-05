@@ -6,12 +6,13 @@ it reads the EventStore and produces the data a view renders (current zone count
 + recent alerts). Host-runnable; the served UI is deferred until the ADR closes.
 """
 
-from overwatch.bus.schemas import Alert, ZoneCount
+from overwatch.bus.schemas import Alert, Event, ZoneCount
 from overwatch.output.dashboard.view import (
     DashboardState,
     build_dashboard_state,
     latest_zone_counts,
     recent_alerts,
+    recent_events,
     render_text,
 )
 from overwatch.output.sqlite_store import SqliteEventStore
@@ -25,6 +26,8 @@ def _store_with_data():
     store.record(ZoneCount(zone_id="pen-B", timestamp=12.0, count=2))
     for ts, title in [(11.0, "old"), (21.0, "newer"), (22.0, "newest")]:
         store.record(Alert(timestamp=ts, severity="warning", title=title, message="m"))
+    for ts, kind in [(11.5, "fence_crossing"), (21.5, "immobility")]:
+        store.record(Event(timestamp=ts, kind=kind, track_id=1, zone_id="z"))
     return store
 
 
@@ -37,6 +40,16 @@ def test_latest_zone_counts_keeps_most_recent_per_zone():
 def test_recent_alerts_newest_first_and_limited():
     alerts = recent_alerts(_store_with_data(), end=100.0, limit=2)
     assert [a.title for a in alerts] == ["newest", "newer"]
+
+
+def test_recent_events_newest_first_and_limited():
+    events = recent_events(_store_with_data(), end=100.0, limit=1)
+    assert [e.kind for e in events] == ["immobility"]  # ts 21.5 is newer than 11.5
+
+
+def test_build_dashboard_state_includes_recent_events():
+    state = build_dashboard_state(_store_with_data(), now=100.0, window_s=1000.0)
+    assert {e.kind for e in state.recent_events} == {"fence_crossing", "immobility"}
 
 
 def test_build_dashboard_state_combines_counts_and_alerts():

@@ -47,6 +47,7 @@ HOST_SAFE_MODULES = [
     "overwatch.output.retention",            # data-retention / rotation policy (#40)
     "overwatch.output.dashboard",            # read-only operator dashboard view (#18)
     "overwatch.output.dashboard.view",
+    "overwatch.output.dashboard.server",     # thin read-only HTML dashboard surface (#18)
     "overwatch.config",
     "overwatch.config.loader",
     "overwatch.observability",               # metrics + structured logging (#13)

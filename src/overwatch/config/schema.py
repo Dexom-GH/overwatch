@@ -256,10 +256,27 @@ class ThrottleConfig(_Strict):
     rate_window_seconds: float = Field(default=60.0, gt=0.0)
 
 
+class DashboardConfig(_Strict):
+    """Read-only operator dashboard surface (#18); see output/dashboard/server.py.
+
+    Decision 2026-06-05: a thin, local, read-only HTML view with static refresh.
+    ``refresh_seconds`` is the browser's auto-refresh interval; ``window_seconds``
+    is the trailing window of records shown.
+    """
+
+    host: str = "127.0.0.1"
+    port: int = Field(default=8080, gt=0, le=65535)
+    refresh_seconds: int = Field(default=5, gt=0)
+    window_seconds: float = Field(default=3600.0, gt=0.0)
+    alert_limit: int = Field(default=10, gt=0)
+    event_limit: int = Field(default=10, gt=0)
+
+
 class OutputConfig(_Strict):
     slack: SlackConfig
     store: StoreConfig
     throttle: ThrottleConfig = Field(default_factory=ThrottleConfig)
+    dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
 
 
 class AppConfig(_Strict):

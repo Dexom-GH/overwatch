@@ -70,3 +70,11 @@ output:
     cooldown_seconds: 60      # collapse identical alerts within this window (0 disables)
     max_per_window: null      # global burst cap per rate window (null = unlimited)
     rate_window_seconds: 60   # window for the burst cap
+  dashboard:
+    # Read-only operator dashboard (#18): thin local HTML, static refresh.
+    host: 127.0.0.1           # bind address (on-site screen / localhost)
+    port: 8080                # http port to serve the page on
+    refresh_seconds: 5        # browser auto-refresh interval
+    window_seconds: 3600      # trailing window of records shown
+    alert_limit: 10           # max recent alerts listed
+    event_limit: 10           # max recent events listed
