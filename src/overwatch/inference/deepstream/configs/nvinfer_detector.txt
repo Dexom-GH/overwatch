@@ -11,8 +11,12 @@
 # parser comes from marcoslucianops/DeepStream-Yolo (NvDsInferParseYolo +
 # libnvdsinfer_custom_impl_Yolo.so), installed on device.
 #
-# Paths below are placeholders resolved at the on-device run dir — adjust when
-# wiring the pipeline on the Jetson (#6 / #15). NOT yet validated on device.
+# Asset paths below are RUN-DIR-relative: nvinfer resolves them against the process
+# CWD, which under systemd is WorkingDirectory=/srv/farmproject/overwatch (the repo
+# root — see scripts/target/overwatch.service). On a fresh deploy the parser .so and
+# labels.txt are staged at these run-dir paths by scripts/target/57_stage_detector_assets.sh
+# (#97); run manual CLI invocations from the repo root too. NOT yet validated on
+# device (the live detect run is #84/#81; bbox-parse sanity is the #49 method).
 
 [property]
 gpu-id=0
