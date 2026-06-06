@@ -51,12 +51,16 @@ except Exception as exc:  # pragma: no cover - opencv absent
 _LOG = logging.getLogger(__name__)
 
 
-def _inject_cred(url: str, cred: "Optional[str]") -> str:
+def inject_cred(url: str, cred: "Optional[str]") -> str:
     """Return ``url`` with ``cred`` (``user:pass``) spliced into the userinfo slot.
 
     ``rtsp://host:554/s`` + ``user:pass`` -> ``rtsp://user:pass@host:554/s``. A
-    ``None`` cred leaves the URL unchanged. Kept tiny and pure so it is testable
-    without building a real capture; callers must never log the result.
+    ``None`` cred (or a non-scheme string) leaves the URL unchanged. ``cred`` must
+    be URL-safe already — a password with reserved chars (e.g. ``#``) is expected
+    percent-encoded (``%23``), since this is a raw userinfo splice, not an encoder.
+    Kept tiny and pure so it is testable without building a real capture; used by
+    both this capture source and the DeepStream inference leg (#84). Callers must
+    never log the result.
     """
     if not cred:
         return url
@@ -193,7 +197,7 @@ class RtspSource(CaptureSource):
         if self._pipeline is not None:  # pragma: no cover - target GStreamer/NVDEC path
             return cv2.VideoCapture(self._pipeline, cv2.CAP_GSTREAMER)
         return cv2.VideoCapture(  # pragma: no cover - needs a real stream
-            _inject_cred(self._url, self._cred), cv2.CAP_FFMPEG
+            inject_cred(self._url, self._cred), cv2.CAP_FFMPEG
         )
 
     def __repr__(self) -> str:
@@ -201,4 +205,4 @@ class RtspSource(CaptureSource):
         return "RtspSource(source_id={!r}, url={!r})".format(self._source_id, self._url)
 
 
-__all__ = ["RtspSource"]
+__all__ = ["RtspSource", "inject_cred"]

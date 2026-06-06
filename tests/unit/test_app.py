@@ -200,6 +200,16 @@ class TestBuildStages:
         inference = stages[1]
         assert inference._source == "rtsp://h/s"
 
+    def test_build_stages_injects_rtsp_cred_into_inference(self):
+        # #84: an authenticated camera's credential (resolved by the loader from
+        # cred_env into source.cred) must be spliced into the DeepStream source URL
+        # too — the inference leg decodes the RTSP stream independently (ADR-0006)
+        # and would otherwise 401 on a bare URL → no detections.
+        cfg = _full_cfg()
+        cfg.capture.sources[0].cred = "user:pass"  # as the loader resolves from cred_env
+        stages = _build_stages(cfg, _FakeBus())
+        assert stages[1]._source == "rtsp://user:pass@h/s"
+
     def test_build_stages_passes_detector_labels_to_inference(self, tmp_path):
         # #91: class labels resolved from the detector config reach the
         # InferenceStage so Track.class_name is a name, not a numeric id.

@@ -14,7 +14,7 @@ import pytest
 from overwatch.bus import topics
 from overwatch.capture import rtsp_source as rtsp_mod
 from overwatch.capture.base import CaptureSource
-from overwatch.capture.rtsp_source import RtspSource, _inject_cred
+from overwatch.capture.rtsp_source import RtspSource, inject_cred
 from overwatch.capture.service import run_capture
 
 
@@ -181,8 +181,14 @@ def test_repr_redacts_credentials():
 
 
 def test_inject_cred_builds_userinfo_url():
-    assert _inject_cred("rtsp://h:554/s", "user:pass") == "rtsp://user:pass@h:554/s"
-    assert _inject_cred("rtsp://h:554/s", None) == "rtsp://h:554/s"  # no cred -> unchanged
+    assert inject_cred("rtsp://h:554/s", "user:pass") == "rtsp://user:pass@h:554/s"
+    assert inject_cred("rtsp://h:554/s", None) == "rtsp://h:554/s"  # no cred -> unchanged
+    # cred is spliced verbatim (caller pre-encodes reserved chars, e.g. '#' -> '%23').
+    assert (
+        inject_cred("rtsp://h:554/s?a=1&b=2", "feed:Qwerty%23123")
+        == "rtsp://feed:Qwerty%23123@h:554/s?a=1&b=2"
+    )
+    assert inject_cred("cam-0", "user:pass") == "cam-0"  # non-URL (ZED id) -> unchanged
 
 
 def test_cv2_guard_raises_when_unavailable(monkeypatch):
