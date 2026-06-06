@@ -8,11 +8,38 @@ is ingested via a single dynamic-pad ``nvurisrcbin``. Linking those elements and
 running them stays target-only (verified on the Jetson).
 """
 
+from pathlib import Path
+
+import overwatch.inference.deepstream.pipeline as pipeline_mod
 from overwatch.inference.deepstream.pipeline import (
     classify_source,
     load_detector_labels,
     plan_source,
 )
+
+
+class TestNvinferConfigGKeyFileSafe:
+    """The nvinfer .txt configs are parsed by DeepStream's GKeyFile, which does NOT
+    strip trailing inline comments — a ``key=value  # note`` line makes the value
+    unparseable (the #84 first-on-device failure: ``net-scale-factor`` "cannot be
+    interpreted"). Comments must be on their own line. Guard every committed config.
+    """
+
+    def test_no_inline_comments_on_value_lines(self):
+        cfg_dir = Path(pipeline_mod.__file__).parent / "configs"
+        configs = sorted(cfg_dir.glob("nvinfer*.txt"))
+        assert configs, "expected at least one nvinfer*.txt config to guard"
+        for cfg in configs:
+            for i, raw in enumerate(cfg.read_text(encoding="utf-8").splitlines(), 1):
+                line = raw.strip()
+                if not line or line.startswith("#") or line.startswith("[") or "=" not in line:
+                    continue
+                value = line.split("=", 1)[1]
+                assert "#" not in value, (
+                    "{}:{} inline comment breaks DeepStream GKeyFile parsing: {!r}".format(
+                        cfg.name, i, raw
+                    )
+                )
 
 
 class TestClassifySource:

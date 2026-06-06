@@ -14,10 +14,11 @@ models/*
 *.onnx
 *.engine
 
-# Run-dir detector asset staged on-device by scripts/target/57_stage_detector_assets.sh
-# (#97): a symlink to the package's configs/labels.txt so the nvinfer config's
-# run-dir-relative labelfile-path resolves. Not committed.
-/labels.txt
+# Detector assets staged on-device by scripts/target/57_stage_detector_assets.sh
+# (#97): the DeepStream-Yolo parser .so under models/, and a config-dir symlink
+# (configs/models -> repo-root models/) so nvinfer resolves its config-relative
+# asset paths onto the real engine + parser. Not committed.
+/src/overwatch/inference/deepstream/configs/models
 
 # Captured data
 data/

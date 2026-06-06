@@ -11,29 +11,37 @@
 # parser comes from marcoslucianops/DeepStream-Yolo (NvDsInferParseYolo +
 # libnvdsinfer_custom_impl_Yolo.so), installed on device.
 #
-# Asset paths below are RUN-DIR-relative: nvinfer resolves them against the process
-# CWD, which under systemd is WorkingDirectory=/srv/farmproject/overwatch (the repo
-# root — see scripts/target/overwatch.service). On a fresh deploy the parser .so and
-# labels.txt are staged at these run-dir paths by scripts/target/57_stage_detector_assets.sh
-# (#97); run manual CLI invocations from the repo root too. NOT yet validated on
-# device (the live detect run is #84/#81; bbox-parse sanity is the #49 method).
+# Asset paths below are CONFIG-DIR-relative: gst-nvinfer resolves model-engine-file
+# / custom-lib-path / onnx-file / labelfile-path against THIS file's directory, not
+# the process CWD (verified on-device, #84). On a fresh deploy
+# scripts/target/57_stage_detector_assets.sh (#97) makes them resolve: it symlinks
+# the DeepStream-Yolo parser .so into models/ and links configs/models -> repo-root
+# models/, so `models/...` lands on the real engine + parser; labels.txt is committed
+# alongside this file. Validated live on-device (#84): goat/poultry/sheep detected.
 
 [property]
 gpu-id=0
-net-scale-factor=0.0039215697906911373   # 1/255
-model-color-format=0                       # 0=RGB
+# net-scale-factor = 1/255 (normalize pixel 0-255 -> 0-1)
+net-scale-factor=0.0039215697906911373
+# model-color-format: 0=RGB
+model-color-format=0
 # onnx-file / model-engine-file: produced on device (see trt-model-conversion).
 onnx-file=models/yolov8_farm.onnx
 model-engine-file=models/yolov8_farm_fp16.engine
 labelfile-path=labels.txt
-batch-size=1                               # raise for nvstreammux multi-stream (ADR-0006)
-network-mode=2                             # 0=FP32 1=INT8 2=FP16
-num-detected-classes=3                     # V1 detector: tier 1-2 (sheep/goat/poultry); see labels.py detector_classes()
+# batch-size: raise for nvstreammux multi-stream (ADR-0006)
+batch-size=1
+# network-mode: 0=FP32 1=INT8 2=FP16
+network-mode=2
+# num-detected-classes: V1 detector tier 1-2 (sheep/goat/poultry); see labels.py detector_classes()
+num-detected-classes=3
 interval=0
 gie-unique-id=1
 process-mode=1
-network-type=0                             # 0=detector
-cluster-mode=2                             # 2=NMS
+# network-type: 0=detector
+network-type=0
+# cluster-mode: 2=NMS
+cluster-mode=2
 maintain-aspect-ratio=1
 symmetric-padding=1
 # DeepStream-Yolo custom parser (installed on device):
