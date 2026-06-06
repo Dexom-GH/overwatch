@@ -2,21 +2,26 @@
 # TARGET (Jetson) — stage the detector's runtime assets where the canonical
 # nvinfer config resolves them, on a fresh deploy (#97).
 #
-# WHY. src/overwatch/inference/deepstream/configs/nvinfer_detector.txt names its
-# assets RUN-DIR-relative (the systemd unit runs with WorkingDirectory =
-# /srv/farmproject/overwatch, the repo root — see overwatch.service):
+# WHY. gst-nvinfer resolves the asset paths in its config file **relative to the
+# config file's own directory** (verified on-device, #84) — NOT the process CWD.
+# src/overwatch/inference/deepstream/configs/nvinfer_detector.txt names:
 #   custom-lib-path=models/DeepStream-Yolo/nvdsinfer_custom_impl_Yolo/libnvdsinfer_custom_impl_Yolo.so
+#   model-engine-file=models/yolov8_farm_fp16.engine
 #   labelfile-path=labels.txt
-# But on this device the DeepStream-Yolo bbox parser .so is built under the #76
-# yolo-spike tree, and labels.txt lives in the package's configs/ dir — so the
-# config does NOT resolve as-is and nvinfer fails to load the custom parser
-# (→ zero detections). #49 hit exactly this (it only worked with a hand-made
-# absolute-path config). This script stages both assets at the run-dir paths the
-# committed config names, so the canonical config works unmodified.
+# so nvinfer looks under <config-dir>/models/... and <config-dir>/labels.txt. But
+# the engine is built under the repo-root models/ (56_build_engines.sh) and the
+# DeepStream-Yolo bbox parser .so is built under the #76 yolo-spike tree — so the
+# config does NOT resolve as-is and nvinfer fails to load the custom parser /
+# engine (→ zero detections). #49 hit this; #84 pinned the cause to config-relative
+# resolution.
 #
-# It does NOT edit the committed config (that would dirty the deploy's checkout)
-# and it changes no Python. The parser .so + labels.txt are symlinked (not copied)
-# into the gitignored run-dir locations, so a re-deploy just refreshes the links.
+# FIX (two symlinks, no config edit, no Python change):
+#   1. symlink the parser .so into the repo-root models/ (so models/ holds every
+#      asset the config names: parser + engine + onnx);
+#   2. symlink <config-dir>/models -> repo-root models/, so nvinfer's config-
+#      relative `models/...` lookups resolve onto the real assets. labels.txt is
+#      committed in the config dir, so labelfile-path already resolves.
+# Both links are gitignored; a re-deploy just refreshes them.
 #
 #   bash scripts/target/57_stage_detector_assets.sh
 #   PARSER_SO=/path/to/libnvdsinfer_custom_impl_Yolo.so bash scripts/target/57_stage_detector_assets.sh
@@ -32,17 +37,19 @@ REPO="${OVERWATCH_DIR:-$(cd "$HERE/../.." && pwd)}"
 # tree (override PARSER_SO if it lives elsewhere on a given device).
 PARSER_SO="${PARSER_SO:-/srv/farmproject/yolo-spike/DeepStream-Yolo/nvdsinfer_custom_impl_Yolo/libnvdsinfer_custom_impl_Yolo.so}"
 
-# Run-dir targets the committed nvinfer config resolves against (CWD = $REPO).
-PARSER_LINK="$REPO/models/DeepStream-Yolo/nvdsinfer_custom_impl_Yolo/libnvdsinfer_custom_impl_Yolo.so"
-LABELS_SRC="$REPO/src/overwatch/inference/deepstream/configs/labels.txt"
-LABELS_LINK="$REPO/labels.txt"
+MODELS="$REPO/models"
+PARSER_LINK="$MODELS/DeepStream-Yolo/nvdsinfer_custom_impl_Yolo/libnvdsinfer_custom_impl_Yolo.so"
+CONFIG_DIR="$REPO/src/overwatch/inference/deepstream/configs"
+CONFIG_MODELS="$CONFIG_DIR/models"     # -> $MODELS, so nvinfer's config-relative models/ resolves
+LABELS="$CONFIG_DIR/labels.txt"
 
 echo "== stage detector assets (#97) =="
-echo "-- run dir: $REPO"
+echo "-- config dir: $CONFIG_DIR"
+echo "-- models dir: $MODELS"
 
 fail=0
 
-# 1. Parser .so -> models/DeepStream-Yolo/... (matches custom-lib-path).
+# 1. Parser .so into the repo-root models/ tree (alongside the engine).
 if [ ! -f "$PARSER_SO" ]; then
   echo "[FAIL] parser .so not found: $PARSER_SO" >&2
   echo "       build it via #76 (DeepStream-Yolo nvdsinfer_custom_impl_Yolo) or set PARSER_SO." >&2
@@ -50,20 +57,27 @@ if [ ! -f "$PARSER_SO" ]; then
 else
   mkdir -p "$(dirname "$PARSER_LINK")"
   ln -sfn "$PARSER_SO" "$PARSER_LINK"
-  echo "[OK]   custom-lib-path -> $PARSER_LINK"
-  echo "         -> $PARSER_SO"
+  echo "[OK]   parser .so   -> $PARSER_LINK"
+  echo "                     -> $PARSER_SO"
 fi
 
-# 2. labels.txt -> run-dir labels.txt (matches labelfile-path; the Python label
-#    loader keeps reading the configs/ copy config-relative, unaffected).
-if [ ! -f "$LABELS_SRC" ]; then
-  echo "[FAIL] labels.txt not found: $LABELS_SRC" >&2
+# 2. config-dir/models -> repo-root models/, so nvinfer's config-relative `models/...`
+#    (custom-lib-path, model-engine-file, onnx-file) resolves onto the real assets.
+#    Replace any stale real dir / wrong link first so the result is exactly the link.
+if [ -L "$CONFIG_MODELS" ] || [ -e "$CONFIG_MODELS" ]; then
+  rm -rf "$CONFIG_MODELS"
+fi
+ln -s "$MODELS" "$CONFIG_MODELS"
+echo "[OK]   config models -> $CONFIG_MODELS -> $MODELS"
+
+# 3. labels.txt is committed in the config dir; nvinfer resolves labelfile-path
+#    (=labels.txt) config-relative onto it. Just confirm it is present.
+if [ ! -f "$LABELS" ]; then
+  echo "[FAIL] labels.txt not found: $LABELS" >&2
   echo "       generate it from configs/animals.yaml via overwatch.inference.labels." >&2
   fail=1
 else
-  ln -sfn "$LABELS_SRC" "$LABELS_LINK"
-  echo "[OK]   labelfile-path -> $LABELS_LINK"
-  echo "         -> $LABELS_SRC"
+  echo "[OK]   labelfile     -> $LABELS"
 fi
 
 if [ "$fail" != "0" ]; then
@@ -71,4 +85,4 @@ if [ "$fail" != "0" ]; then
   exit 1
 fi
 
-echo "== detector assets staged (parser .so + labels.txt) — nvinfer config resolves from the run dir =="
+echo "== detector assets staged — nvinfer config resolves config-relative =="
