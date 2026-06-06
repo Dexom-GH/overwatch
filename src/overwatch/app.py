@@ -474,7 +474,16 @@ def _build_stages(cfg: "AppConfig", bus: "MessageBus") -> "List[Stage]":
     # inference source is the first source's URL (RTSP); a ZED source feeds
     # DeepStream via the #6 seam (deferred) — source_id is a placeholder until then.
     src0 = cfg.capture.sources[0]
-    infer_source = getattr(src0, "url", None) or src0.source_id
+    # The DeepStream leg decodes the RTSP stream independently (ADR-0006), so an
+    # authenticated camera needs the credential spliced into the inference source
+    # too — else nvurisrcbin gets a bare URL and the camera 401s (no detections,
+    # #84). inject_cred is a no-op for a None cred or a non-URL (ZED/file) source,
+    # so this is safe for every source type. The credentialed URL must not be logged.
+    from overwatch.capture.rtsp_source import inject_cred
+
+    infer_source = inject_cred(
+        getattr(src0, "url", None) or src0.source_id, getattr(src0, "cred", None)
+    )
     # Resolve detector class names (#91) so Track.class_name — and thus the
     # operator's Slack alert — reads "sheep", not "0". None falls back to ids.
     from overwatch.inference.deepstream.pipeline import load_detector_labels
