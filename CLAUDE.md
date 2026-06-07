@@ -80,7 +80,9 @@ CHANGELOG.md     Keep a Changelog; CalVer (see docs/RELEASING.md)
 Unresolved design choices are ADRs in [docs/DECISIONS/](docs/DECISIONS/). If you
 make or change one of these decisions, **update the ADR** — don't just change
 code. Currently **open**: 0003 (on-demand ReID trigger) — its dispatch strategy
-is closed by the #8 benchmark. **Accepted:** 0001 (message bus) **hybrid** —
+is closed by the #8 benchmark; 0008 (dashboard streaming surface) — client arch
+**decided** (SPA, CI-built static bundle, supersedes the #18 read-only table);
+transport + overlay-draw + bus path still open, resolved by the #119 spike. **Accepted:** 0001 (message bus) **hybrid** —
 ZeroMQ ephemeral tier + SQLite EventStore durable tier, V1 default, with a
 **pending final-accept benchmark gate** (RSS / p99 latency / frame-drop,
 on-device — see #8 and the ADR-0001 benchmark issue); 0002 (ZED↔DeepStream)
