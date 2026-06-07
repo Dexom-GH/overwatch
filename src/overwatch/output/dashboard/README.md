@@ -21,22 +21,30 @@ whole point of building off-device.
   events). Unchanged by the SPA shift.
 - `server.py` — the **backend**: a FastAPI app (`create_app`) exposing
   `GET /api/state` (the `DashboardState` as JSON, via `state_dict`),
-  `GET /api/health`, and — when a live feed is wired in — `GET /api/feed`
-  (throttled MJPEG, `multipart/x-mixed-replace`), plus serving the built SPA
-  `dist/` as static assets. **Read-only by construction** — only `GET`/`HEAD`
-  routes exist; mutating methods get `405` and never reach the store.
-  `make_server` returns a `DashboardServer` (uvicorn) whose
+  `GET /api/health`, the **live feeds** — `GET /api/feeds` (available sources) and
+  `GET /api/feed/{source}` (throttled MJPEG, `multipart/x-mixed-replace`) — plus
+  serving the built SPA `dist/` as static assets. **Read-only by construction** —
+  only `GET`/`HEAD` routes exist; mutating methods get `405` and never reach the
+  store. `make_server` returns a `DashboardServer` (uvicorn) whose
   `serve_forever`/`shutdown`/`server_close` surface lets the supervised
   `DashboardStage` (#110) drive it unchanged.
 - `frame_slot.py` — the **live-feed hand-off** (#120, ADR-0008): a thread-safe,
-  single-slot holder for the latest burned-in JPEG frame. The DeepStream pipeline's
-  `appsink` writes it (`put`); the `/api/feed` MJPEG stream reads it (`wait_for`).
-  Frames stay **in-process** — off the ZeroMQ bus and the SQLite store (ADR-0001).
-  `app.py` shares one slot between the `InferenceStage` (producer) and
-  `DashboardStage` (consumer); `output.dashboard.feed_enabled`/`feed_fps` gate it
-  (on by default). The pipeline tap is a **`fakesink` + buffer probe** on the
-  encoder src pad — not an `appsink` — so the DeepStream `NULL` teardown stays clean
-  when stopping mid-stream (#129).
+  single-slot holder for the latest JPEG frame. A producer writes it (`put`); the
+  `/api/feed/{source}` MJPEG stream reads it (`wait_for`). Frames stay **in-process**
+  — off the ZeroMQ bus and the SQLite store (ADR-0001).
+- **Feed sources** (`output.dashboard` config; SPA toggles between them, #132):
+  - **detection** — the DeepStream pipeline's burned-in feed; the slot is shared
+    with `InferenceStage`. Jetson-only. The pipeline tap is a **`fakesink` + buffer
+    probe** on the encoder src pad — not an `appsink` — so the `NULL` teardown stays
+    clean mid-stream (#129). Gated by `feed_enabled` (on by default).
+  - **raw** — `feeds.py` `RtspFeeder`: the RTSP camera decoded directly via `cv2`
+    (host + device, **no DeepStream**). `feed_rtsp_enabled` / `feed_rtsp_url`
+    (defaults to the first rtsp capture source).
+  - **mock** — `feeds.py` `MockFeeder`: a synthetic test pattern for offline dev.
+    `feed_mock_enabled`.
+  `app.py` builds the `{source -> FrameSlot}` map; `DashboardStage` starts/stops the
+  raw/mock producers. Standalone `server.serve(cfg)` builds the raw/mock feeders too,
+  so the console shows a real camera on the host with no pipeline.
 - `web/` — the **React + Vite + TypeScript SPA** (its own host-side toolchain;
   never imports the `overwatch` package). Build commands + scope in
   [`web/README.md`](web/README.md). The TS types in `web/src/api.ts` mirror

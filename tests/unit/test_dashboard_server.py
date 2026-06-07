@@ -166,20 +166,25 @@ def test_mjpeg_stream_emits_latest_frames_in_order():
     gen.close()
 
 
-def test_feed_route_registered_only_when_slot_present():
-    # The /api/feed route exists iff a frame slot is wired in (pipeline running).
-    # We assert on the route table rather than issuing a GET — the live response is
-    # an infinite multipart stream (the byte framing is covered by the mjpeg_stream
-    # test above; the live HTTP path is verified on-device with `curl --max-time`).
-    with_slot = {r.path for r in create_app(_store_with_data(), frame_slot=FrameSlot()).routes}
-    without = {r.path for r in create_app(_store_with_data()).routes}
-    assert "/api/feed" in with_slot
-    assert "/api/feed" not in without
+def test_feeds_endpoint_lists_sources_in_preferred_order_with_default():
+    feeds = {"mock": FrameSlot(), "detection": FrameSlot()}
+    client = TestClient(create_app(_store_with_data(), feeds=feeds, now=lambda: 100.0))
+    data = client.get("/api/feeds").json()
+    assert data["feeds"] == ["detection", "mock"]  # detection preferred over mock
+    assert data["default"] == "detection"
 
 
-def test_feed_absent_returns_404_when_no_slot():
+def test_feeds_endpoint_empty_when_no_feeds():
     client = TestClient(create_app(_store_with_data(), now=lambda: 100.0))
-    assert client.get("/api/feed").status_code == 404
+    assert client.get("/api/feeds").json() == {"feeds": [], "default": None}
+
+
+def test_feed_unknown_source_returns_404():
+    # A valid source streams an infinite MJPEG response (byte framing is covered by
+    # the mjpeg_stream test above; the live HTTP path is verified on-device with
+    # `curl --max-time`). Here we only exercise the immediate 404 path.
+    client = TestClient(create_app(_store_with_data(), feeds={"mock": FrameSlot()}, now=lambda: 100.0))
+    assert client.get("/api/feed/nope").status_code == 404
 
 
 # --- make_server: binds a real port, http.server-compatible address --------

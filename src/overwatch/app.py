@@ -22,7 +22,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from typing import TYPE_CHECKING, Any, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from overwatch.capture.service import run_capture
 from overwatch.orchestrator import Stage, Supervisor
@@ -306,13 +306,17 @@ class DashboardStage(Stage):
         *,
         server: "Optional[Any]" = None,
         store: "Optional[Any]" = None,
-        frame_slot: "Optional[Any]" = None,
+        feeds: "Optional[Any]" = None,
+        feeders: "Optional[Any]" = None,
         name: str = "dashboard",
     ) -> None:
         self._cfg = cfg
         self._server = server
         self._store = store
-        self._frame_slot = frame_slot  # live-feed slot shared with InferenceStage (#120)
+        # Live feeds (#120/#132): {source -> FrameSlot} served at /api/feed/{source};
+        # `feeders` are the non-pipeline producers (raw/mock) this stage starts/stops.
+        self._feeds = feeds or {}
+        self._feeders = feeders or []
         self._name = name
 
     @property
@@ -340,13 +344,15 @@ class DashboardStage(Stage):
                 host=dash.host,
                 port=dash.port,
                 dist_dir=dash.dist_dir,
-                frame_slot=self._frame_slot,
+                feeds=self._feeds,
                 feed_fps=dash.feed_fps,
                 window_seconds=dash.window_seconds,
                 refresh_seconds=dash.refresh_seconds,
                 alert_limit=dash.alert_limit,
                 event_limit=dash.event_limit,
             )
+        for feeder in self._feeders:  # start the raw/mock producers (#132)
+            feeder.start()
         thread = threading.Thread(
             target=server.serve_forever, name="dashboard-http", daemon=True
         )
@@ -354,6 +360,8 @@ class DashboardStage(Stage):
         try:
             stop.wait()
         finally:
+            for feeder in self._feeders:
+                feeder.stop()
             server.shutdown()
             server.server_close()
             thread.join(timeout=5.0)
@@ -509,18 +517,40 @@ def _build_stages(cfg: "AppConfig", bus: "MessageBus") -> "List[Stage]":
 
     labels = load_detector_labels(cfg.inference.detector_config)
 
-    # Live-feed slot (#120, ADR-0008): the in-process hand-off from the pipeline's
-    # burned-in MJPEG tap to the dashboard's /api/feed — frames stay off the bus.
-    # Created only when the dashboard (durable store + enabled) and its feed are on,
-    # and shared by the InferenceStage (producer) and DashboardStage (consumer).
+    # Dashboard live feeds (#120/#132). The dashboard serves a map of {source ->
+    # FrameSlot} and the SPA toggles between them:
+    #   detection — burned-in DeepStream tap; the slot is shared with InferenceStage
+    #               (producer) and stays off the bus.
+    #   raw/mock  — non-pipeline producers (cv2 RTSP / synthetic) owned by the
+    #               DashboardStage. Built only when the dashboard is on.
     dash_cfg = cfg.output.dashboard
     store_cfg = cfg.output.store
     dashboard_on = dash_cfg.enabled and store_cfg.backend == "sqlite" and bool(store_cfg.path)
-    frame_slot = None
-    if dashboard_on and dash_cfg.feed_enabled:
+    feeds: "Dict[str, Any]" = {}
+    feeders: "List[Any]" = []
+    detection_slot = None
+    if dashboard_on:
+        from overwatch.output.dashboard.feeds import make_aux_feeds
         from overwatch.output.dashboard.frame_slot import FrameSlot
 
-        frame_slot = FrameSlot()
+        if dash_cfg.feed_enabled:
+            detection_slot = FrameSlot()
+            feeds["detection"] = detection_slot
+        # raw feed url: explicit override, else the first rtsp capture source (+cred)
+        rtsp_url, rtsp_cred = dash_cfg.feed_rtsp_url, None
+        if dash_cfg.feed_rtsp_enabled and not rtsp_url:
+            for s in cfg.capture.sources:
+                if getattr(s, "type", None) == "rtsp":
+                    rtsp_url, rtsp_cred = getattr(s, "url", None), getattr(s, "cred", None)
+                    break
+        aux_feeds, feeders = make_aux_feeds(
+            rtsp_enabled=dash_cfg.feed_rtsp_enabled,
+            rtsp_url=rtsp_url,
+            rtsp_cred=rtsp_cred,
+            mock_enabled=dash_cfg.feed_mock_enabled,
+            fps=dash_cfg.feed_fps,
+        )
+        feeds.update(aux_feeds)
 
     stages.append(
         InferenceStage(
@@ -529,7 +559,7 @@ def _build_stages(cfg: "AppConfig", bus: "MessageBus") -> "List[Stage]":
             source=infer_source,
             tracker_config=cfg.inference.tracker_config,
             labels=labels,
-            frame_slot=frame_slot,
+            frame_slot=detection_slot,
             feed_fps=dash_cfg.feed_fps,
         )
     )
@@ -551,7 +581,7 @@ def _build_stages(cfg: "AppConfig", bus: "MessageBus") -> "List[Stage]":
             )
         )
         if dash_cfg.enabled:
-            stages.append(DashboardStage(cfg, frame_slot=frame_slot))
+            stages.append(DashboardStage(cfg, feeds=feeds, feeders=feeders))
     return stages
 
 
