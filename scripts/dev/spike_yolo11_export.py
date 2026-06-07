@@ -61,3 +61,40 @@ def verify_deepstream_onnx(model: "onnx.ModelProto", expected_max_opset: int = T
                 last, DEEPSTREAM_LAST_DIM
             )
         )
+
+
+def _run_export(weights: str, onnx_out: str, opset: int = 12, imgsz: int = 640) -> None:
+    """Invoke the vendored v11 exporter as a subprocess."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    exporter = Path(__file__).resolve().parent / "vendor" / "deepstream-yolo" / "export_yolo11.py"
+    cmd = [sys.executable, str(exporter), "-w", weights, "--opset", str(opset), "-s", str(imgsz)]
+    print("[spike] running:", " ".join(cmd))
+    subprocess.run(cmd, check=True)
+    produced = Path(weights).with_suffix(".onnx")
+    if produced.resolve() != Path(onnx_out).resolve():
+        produced.replace(onnx_out)
+
+
+def _main(argv=None) -> int:
+    import argparse
+
+    p = argparse.ArgumentParser(description="YOLOv11-on-TRT-8.5 spike export+verify")
+    p.add_argument("--weights", default="yolo11n.pt", help="stock COCO weights (auto-downloaded by Ultralytics)")
+    p.add_argument("--out", default="models/yolo11n.onnx", help="ONNX output path")
+    p.add_argument("--opset", type=int, default=12)
+    p.add_argument("--imgsz", type=int, default=640)
+    args = p.parse_args(argv)
+
+    _run_export(args.weights, args.out, args.opset, args.imgsz)
+    model = onnx.load(args.out)
+    verify_deepstream_onnx(model)
+    print("[spike] OK: {} is opset<= {}, DeepStream [1, anchors, 6] layout, valid".format(
+        args.out, TRT85_MAX_OPSET))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())
