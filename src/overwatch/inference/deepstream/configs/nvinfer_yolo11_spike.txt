@@ -1,0 +1,28 @@
+# THROWAWAY spike config (YOLOv11-on-TRT-8.5 viability, sub-project A).
+# Stock COCO yolo11n — NOT a farm model. Do NOT wire into the app. Delete after
+# the spike's go/no-go is recorded. Mirrors nvinfer_detector.txt but for 80 COCO
+# classes and the spike engine. Paths are CONFIG-DIR-relative (see #84/#97).
+[property]
+gpu-id=0
+net-scale-factor=0.0039215697906911373
+model-color-format=0
+onnx-file=models/yolo11n.onnx
+model-engine-file=models/yolo11n_fp16.engine
+labelfile-path=labels_coco.txt
+batch-size=1
+network-mode=2
+num-detected-classes=80
+interval=0
+gie-unique-id=1
+process-mode=1
+network-type=0
+cluster-mode=2
+maintain-aspect-ratio=1
+symmetric-padding=1
+parse-bbox-func-name=NvDsInferParseYolo
+custom-lib-path=models/DeepStream-Yolo/nvdsinfer_custom_impl_Yolo/libnvdsinfer_custom_impl_Yolo.so
+
+[class-attrs-all]
+nms-iou-threshold=0.45
+pre-cluster-threshold=0.25
+topk=300
