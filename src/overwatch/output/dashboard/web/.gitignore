@@ -1,0 +1,6 @@
+# Frontend toolchain artifacts — never committed (#124, ADR-0008).
+# dist/ is also covered by the root .gitignore; the SPA is built in CI and
+# shipped to the device, not committed.
+node_modules/
+dist/
+*.local

@@ -259,11 +259,14 @@ class ThrottleConfig(_Strict):
 
 
 class DashboardConfig(_Strict):
-    """Read-only operator dashboard surface (#18); see output/dashboard/server.py.
+    """Operator-console surface (ADR-0008, #124); see output/dashboard/server.py.
 
-    Decision 2026-06-05: a thin, local, read-only HTML view with static refresh.
-    ``refresh_seconds`` is the browser's auto-refresh interval; ``window_seconds``
-    is the trailing window of records shown.
+    ADR-0008 (supersedes #18): a single-page app built in CI and served as a
+    static ``dist/`` bundle, backed by a JSON data API. ``refresh_seconds`` is the
+    SPA's poll interval (exposed to the client at ``/api/state``); ``window_seconds``
+    is the trailing window of records shown. ``dist_dir`` overrides where the
+    backend serves the prebuilt SPA from (``None`` -> the package's ``web/dist``;
+    absent -> the backend serves the JSON API only).
     """
 
     enabled: bool = True  # run the supervised dashboard server with the pipeline (#110)
@@ -273,6 +276,7 @@ class DashboardConfig(_Strict):
     window_seconds: float = Field(default=3600.0, gt=0.0)
     alert_limit: int = Field(default=10, gt=0)
     event_limit: int = Field(default=10, gt=0)
+    dist_dir: Optional[str] = None  # serve prebuilt SPA from here (None -> web/dist)
 
 
 class OutputConfig(_Strict):

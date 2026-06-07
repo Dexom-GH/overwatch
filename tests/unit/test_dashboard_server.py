@@ -1,22 +1,16 @@
-"""Host tests for the thin read-only HTML dashboard surface (#18).
+"""Host tests for the operator-console backend (#124, ADR-0008).
 
-The dashboard-surface decision (2026-06-05) is a **thin local read-only HTML view
-with static refresh** — no SPA/JS build, no web framework. These tests cover the
-HTML renderer, the pure request app (host-testable without sockets), and a real
-localhost serve proving the surface is read-only (GET renders; mutating methods
-are rejected). All host-runnable: stdlib http.server + in-memory SQLite.
+ADR-0008 supersedes the #18 read-only HTML surface with an SPA served as a static
+``dist/`` bundle plus a JSON data API. These tests cover the backend half — the
+JSON API shape, static SPA serving (and API-only fallback when no bundle is
+built), and the read-only guarantee (mutating methods are refused). All
+host-runnable: FastAPI ``TestClient`` over in-memory SQLite, no real sockets.
 """
 
-import http.client
-import threading
+from fastapi.testclient import TestClient
 
 from overwatch.bus.schemas import Alert, Event, ZoneCount
-from overwatch.output.dashboard.server import (
-    DashboardApp,
-    Response,
-    make_server,
-    render_html,
-)
+from overwatch.output.dashboard.server import create_app, make_server, state_dict
 from overwatch.output.dashboard.view import build_dashboard_state
 from overwatch.output.sqlite_store import SqliteEventStore
 
@@ -30,104 +24,96 @@ def _store_with_data():
     return store
 
 
-# --- render_html -----------------------------------------------------------
+# --- state_dict (the SPA data contract) ------------------------------------
 
 
-def test_render_html_is_a_document_with_a_table():
+def test_state_dict_is_flat_json_serializable_shape():
     state = build_dashboard_state(_store_with_data(), now=100.0, window_s=1000.0)
-    html = render_html(state, refresh_seconds=5)
-    assert html.lstrip().startswith("<!DOCTYPE html>")
-    assert "<table" in html
+    payload = state_dict(state, refresh_seconds=7)
+    assert payload["refresh_seconds"] == 7
+    assert payload["generated_at"] == 100.0
+    zones = {z["zone_id"]: z for z in payload["zone_counts"]}
+    assert zones["pen-A"]["count"] == 5
+    assert set(payload["recent_alerts"][0]) == {"timestamp", "severity", "title", "message"}
+    assert set(payload["recent_events"][0]) == {"timestamp", "kind", "track_id", "zone_id"}
 
 
-def test_render_html_includes_static_refresh_meta_with_configured_interval():
-    state = build_dashboard_state(_store_with_data(), now=100.0, window_s=1000.0)
-    html = render_html(state, refresh_seconds=7)
-    assert '<meta http-equiv="refresh" content="7">' in html
+# --- GET /api/state --------------------------------------------------------
 
 
-def test_render_html_shows_zone_counts_alerts_and_events():
-    state = build_dashboard_state(_store_with_data(), now=100.0, window_s=1000.0)
-    html = render_html(state, refresh_seconds=5)
-    # zone counts
-    assert "pen-A" in html and ">5<" in html
-    # alert (severity + title)
-    assert "critical" in html and "Sheep down" in html
-    # event with type / zone / track_id / timestamp (the AC's columns)
-    assert "fence_crossing" in html
-    assert "north-gate" in html
-    assert ">7<" in html  # track_id
+def test_api_state_returns_counts_alerts_events_json():
+    app = create_app(_store_with_data(), now=lambda: 100.0, window_seconds=1000.0, refresh_seconds=5)
+    client = TestClient(app)
+    resp = client.get("/api/state")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("application/json")
+    data = resp.json()
+
+    zones = {z["zone_id"]: z for z in data["zone_counts"]}
+    assert zones["pen-A"]["count"] == 5 and zones["pen-B"]["count"] == 2
+
+    assert [a["title"] for a in data["recent_alerts"]] == ["Sheep down"]
+    assert data["recent_alerts"][0]["severity"] == "critical"
+
+    ev = data["recent_events"][0]
+    assert ev["kind"] == "fence_crossing" and ev["track_id"] == 7 and ev["zone_id"] == "north-gate"
+    assert data["refresh_seconds"] == 5
 
 
-def test_render_html_is_read_only_no_forms():
-    state = build_dashboard_state(_store_with_data(), now=100.0, window_s=1000.0)
-    html = render_html(state, refresh_seconds=5)
-    assert "<form" not in html.lower()
-    assert "<input" not in html.lower()
-
-
-def test_render_html_escapes_untrusted_text():
+def test_api_state_returns_untrusted_text_verbatim_for_client_side_escaping():
+    # The backend ships raw text as JSON; the SPA (React) escapes at render time.
     store = SqliteEventStore(":memory:")
     store.record(Alert(timestamp=22.0, severity="warning", title="<script>x</script>", message="m"))
-    state = build_dashboard_state(store, now=100.0, window_s=1000.0)
-    html = render_html(state, refresh_seconds=5)
-    assert "<script>x</script>" not in html
-    assert "&lt;script&gt;" in html
+    client = TestClient(create_app(store, now=lambda: 100.0, window_seconds=1000.0))
+    data = client.get("/api/state").json()
+    assert data["recent_alerts"][0]["title"] == "<script>x</script>"
 
 
-# --- DashboardApp (pure request logic, no sockets) -------------------------
+def test_api_health_ok():
+    client = TestClient(create_app(_store_with_data(), now=lambda: 100.0))
+    assert client.get("/api/health").json() == {"status": "ok"}
 
 
-def test_app_get_root_returns_html_built_from_store():
-    app = DashboardApp(_store_with_data(), now=lambda: 100.0, window_seconds=1000.0, refresh_seconds=5)
-    resp = app.get("/")
-    assert isinstance(resp, Response)
-    assert resp.status == 200
-    assert resp.content_type.startswith("text/html")
-    assert "Sheep down" in resp.body
-    assert '<meta http-equiv="refresh" content="5">' in resp.body
+# --- read-only guarantee ---------------------------------------------------
 
 
-def test_app_unknown_path_returns_404():
-    app = DashboardApp(_store_with_data(), now=lambda: 100.0)
-    resp = app.get("/nope")
-    assert resp.status == 404
+def test_api_state_is_read_only_rejects_mutations():
+    client = TestClient(create_app(_store_with_data(), now=lambda: 100.0))
+    assert client.post("/api/state").status_code == 405
+    assert client.put("/api/state").status_code == 405
+    assert client.delete("/api/state").status_code == 405
 
 
-def test_app_ignores_query_string_on_root():
-    app = DashboardApp(_store_with_data(), now=lambda: 100.0, window_seconds=1000.0)
-    assert app.get("/?t=1").status == 200
+# --- static SPA serving ----------------------------------------------------
 
 
-# --- real localhost serve: GET renders, mutating methods are rejected ------
+def test_serves_spa_index_from_built_dist(tmp_path):
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<!doctype html><title>Overwatch operator console</title>")
+    app = create_app(_store_with_data(), dist_dir=str(dist), now=lambda: 100.0)
+    client = TestClient(app)
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert "Overwatch operator console" in resp.text
 
 
-def test_server_serves_get_and_rejects_mutations():
-    server = make_server(
-        _store_with_data(), host="127.0.0.1", port=0, now=lambda: 100.0,
-        window_seconds=1000.0, refresh_seconds=5,
-    )
-    host, port = server.server_address
-    t = threading.Thread(target=server.serve_forever, daemon=True)
-    t.start()
+def test_api_works_and_root_404s_when_no_dist_built(tmp_path):
+    # No built bundle -> backend still serves the API; "/" has nothing to serve.
+    app = create_app(_store_with_data(), dist_dir=str(tmp_path / "missing"), now=lambda: 100.0)
+    client = TestClient(app)
+    assert client.get("/").status_code == 404
+    assert client.get("/api/health").json() == {"status": "ok"}
+
+
+# --- make_server: binds a real port, http.server-compatible address --------
+
+
+def test_make_server_binds_port_and_reports_address():
+    server = make_server(_store_with_data(), host="127.0.0.1", port=0, now=lambda: 100.0)
     try:
-        conn = http.client.HTTPConnection(host, port, timeout=5)
-        conn.request("GET", "/")
-        resp = conn.getresponse()
-        body = resp.read().decode("utf-8")
-        assert resp.status == 200
-        assert resp.getheader("Content-Type", "").startswith("text/html")
-        assert "Sheep down" in body
-        conn.close()
-
-        # read-only: a mutating method must be refused (405), never processed
-        conn = http.client.HTTPConnection(host, port, timeout=5)
-        conn.request("POST", "/")
-        resp = conn.getresponse()
-        resp.read()
-        assert resp.status == 405
-        conn.close()
+        host, port = server.server_address
+        assert host == "127.0.0.1"
+        assert isinstance(port, int) and port > 0
     finally:
-        server.shutdown()
         server.server_close()
-        t.join(timeout=5)

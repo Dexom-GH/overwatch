@@ -429,7 +429,7 @@ class TestDashboardStage:
         def _get_ok():
             try:
                 conn = http.client.HTTPConnection(host, port, timeout=2)
-                conn.request("GET", "/")
+                conn.request("GET", "/api/state")
                 body = conn.getresponse().read().decode("utf-8")
                 conn.close()
                 return "Penned" in body

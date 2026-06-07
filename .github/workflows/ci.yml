@@ -38,3 +38,35 @@ jobs:
 
       - name: Pytest (host only; device/gpu/zed excluded)
         run: pytest -m "not device and not gpu and not zed"
+
+  dashboard-spa:
+    # Operator-console SPA build (#124, ADR-0008). Node lives on the CI runner
+    # ONLY — the build produces the static dist/ bundle the Python backend serves;
+    # the Jetson never runs this build. Proves the SPA compiles and publishes the
+    # bundle as an artifact (release.yml attaches it to the release for deploy.sh).
+    name: Dashboard SPA build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/overwatch/output/dashboard/web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: src/overwatch/output/dashboard/web/package-lock.json
+
+      - name: Install (pinned)
+        run: npm ci
+
+      - name: Build SPA (type-check + bundle)
+        run: npm run build
+
+      - name: Upload dist bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-dist
+          path: src/overwatch/output/dashboard/web/dist
+          if-no-files-found: error

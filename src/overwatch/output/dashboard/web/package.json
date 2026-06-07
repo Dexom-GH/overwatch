@@ -1,0 +1,23 @@
+{
+  "name": "overwatch-operator-console",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Overwatch operator console SPA (#124, ADR-0008). Built in CI, served by the Python backend as a static dist/ — never built on the Jetson.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}

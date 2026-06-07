@@ -286,13 +286,13 @@ class RetentionStage(Stage):
 
 
 class DashboardStage(Stage):
-    """Serves the read-only operator dashboard as a supervised stage (#110). Host-runnable.
+    """Serves the read-only operator console as a supervised stage (#110). Host-runnable.
 
-    Wires the #18 dashboard server (`output/dashboard/server.py`) into the one
-    supervised app process so the operator screen comes up and shuts down with the
-    pipeline — `serve()` exists but otherwise has no launcher. Runs the HTTP
-    `serve_forever` on its own thread; on ``stop`` it calls ``shutdown`` +
-    ``server_close`` and joins (no leaked socket/thread).
+    Wires the dashboard backend (`output/dashboard/server.py`; SPA + JSON API per
+    ADR-0008 / #124) into the one supervised app process so the operator screen
+    comes up and shuts down with the pipeline — `serve()` exists but otherwise has
+    no launcher. Runs the HTTP `serve_forever` on its own thread; on ``stop`` it
+    calls ``shutdown`` + ``server_close`` and joins (no leaked socket/thread).
 
     The server (and its read-only store handle) are built **lazily in** :meth:`run`
     from config (so constructing the stage binds no port), unless a ``server`` is
@@ -337,6 +337,7 @@ class DashboardStage(Stage):
                 store,
                 host=dash.host,
                 port=dash.port,
+                dist_dir=dash.dist_dir,
                 window_seconds=dash.window_seconds,
                 refresh_seconds=dash.refresh_seconds,
                 alert_limit=dash.alert_limit,

@@ -1,9 +1,9 @@
-"""Operator dashboard — read-only view over the EventStore (#18).
+"""Operator console — SPA + JSON data API over the EventStore (ADR-0008, #124).
 
-The dashboard *tech* (web app vs native on-device UI) is an OPEN decision with its
-own ADR (see README.md) — so V1 ships the tech-agnostic ``view`` layer (the data a
-view renders: current zone counts + recent alerts), not a served UI. Whatever tech
-is chosen later reads from ``view.build_dashboard_state`` and never reaches into
+The console is a single-page app built in CI and served as a static ``dist/``
+bundle (`server.py`); the tech-agnostic ``view`` layer produces the data a view
+renders (current zone counts + recent alerts + events) and is what the JSON API
+serializes. The dashboard is a *consumer* of stored records and never reaches into
 other stages directly.
 """
 

@@ -26,6 +26,10 @@ data/
 # Local-only benchmark notes (see model-convert-benchmark workflow)
 docs/BENCHMARKS.local.md
 
+# Node / frontend toolchain (operator-console SPA, #124) — built in CI, never
+# committed. dist/ below also covers the SPA's web/dist build output.
+node_modules/
+
 # Python build / cache
 __pycache__/
 *.py[cod]
