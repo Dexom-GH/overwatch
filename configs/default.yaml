@@ -49,7 +49,8 @@ fusion:
   zones: []                   # define on-site (empty is flagged as must-tune)
   fences: []                  # fence lines for crossing detection (#20)
   health:
-    immobility_seconds: 600   # placeholder: flag if stationary this long
+    immobility_seconds: 1800  # starting estimate (30 min); 600 fires on normal rest.
+                              # Tune via docs/research/2026-06-07-immobility-threshold-validation.md (#64)
     lameness_score_threshold: 0.6
   events:
     fence_zones: []
