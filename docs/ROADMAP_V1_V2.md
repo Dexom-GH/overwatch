@@ -95,6 +95,17 @@ forward a documented move rather than a silent one.
   implementation time, not now (the row above is annotated, not moved, while the
   slice is still optional/unstarted).
 
+- **2026-06-07 — Minimal gallery GREENLIT + host half landed (`v2-fwd`, P1):** the
+  PO pulled the minimal manual gallery into the V1 demo (promoting #21 P2→P1). The
+  **host-side half landed via issue #137**: a concrete `CosineGallery` (cosine-NN
+  match, single threshold, `.npz` store under `models/gallery/`) plus the
+  host-testable enroll-CLI core (`reid/enroll.py`, injected embedder). The
+  `# V2→V1:` marker now lives on `reid/gallery.py`. The **target-only remainder**
+  — generating real MegaDescriptor embeddings on the Jetson, the on-device match
+  e2e, demo surfacing, the gallery-row move out of the table above, and the
+  ADR-0003 gallery-match line — completes with **#21**. Cross-camera de-dup (#34)
+  stays V2; threshold semantics must stay consistent with it.
+
 ## Known V1 risks
 
 - ZED ↔ DeepStream source/depth integration ([DECISIONS/0002](DECISIONS/0002-zed-deepstream-integration.md)).
