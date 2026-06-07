@@ -35,6 +35,7 @@ def run_capture(
     *,
     max_frames: Optional[int] = None,
     stop: "Optional[threading.Event]" = None,
+    on_frame: "Optional[Callable[[str], None]]" = None,
 ) -> int:
     """Publish a capture source's frames onto the bus; return the frame count.
 
@@ -49,6 +50,9 @@ def run_capture(
     loop checks it before each frame and returns cleanly once it is set — letting
     the capture stage participate in an ordered pipeline shutdown. Always closes
     the source on exit, including on error.
+
+    ``on_frame`` (if given) is called with the source id after each published
+    frame — the per-frame liveness mark hook (#136); it never sees depth/bytes.
     """
     count = 0
     source.open()
@@ -59,6 +63,8 @@ def run_capture(
             bus.publish(topics.CAPTURE_FRAME, frame)
             if depth is not None:
                 bus.publish(topics.CAPTURE_DEPTH, depth)
+            if on_frame is not None:
+                on_frame(frame.source_id)   # liveness mark (#136) — per published frame
             count += 1
             if max_frames is not None and count >= max_frames:
                 break

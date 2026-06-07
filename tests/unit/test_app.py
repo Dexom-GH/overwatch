@@ -17,13 +17,16 @@ from overwatch.app import (
     DashboardStage,
     FusionStage,
     InferenceStage,
+    LivenessStage,
     OutputStage,
     RetentionStage,
     StoreStage,
     _build_source,
     _build_stages,
+    _liveness_on_event,
     run_pipeline,
 )
+from overwatch.output.liveness import LivenessTracker
 from overwatch.bus import topics
 from overwatch.bus.schemas import Alert, Event, Frame, HealthSignal, Track, ZoneCount
 from overwatch.capture.base import CaptureSource
@@ -131,6 +134,50 @@ def _cfg_with_zone():
 def _track(track_id, cx, cy, frame_id):
     return Track(track_id=track_id, frame_id=frame_id, bbox=(cx - 1, cy - 1, cx + 1, cy + 1),
                  class_id=0, class_name="sheep", confidence=0.9)
+
+
+class TestLivenessWiring:
+    """#136 — the in-process liveness tracker is wired into capture/dashboard/monitor."""
+
+    def test_capture_stage_marks_liveness_per_frame(self):
+        tracker = LivenessTracker(silence_seconds=30.0)
+        src = _ListSource([(_frame(1), None), (_frame(2), None)])  # source_id "zed-0"
+        CaptureStage(src, _FakeBus(), liveness=tracker).run(threading.Event())
+        snap = tracker.snapshot(now=time.monotonic())
+        assert [s.source_id for s in snap.sources] == ["zed-0"]
+        assert snap.sources[0].up is True  # just marked -> within the window
+
+    def test_build_stages_wires_liveness_and_appends_monitor(self):
+        tracker = LivenessTracker(silence_seconds=30.0)
+        stages = _build_stages(_full_cfg(), _FakeBus(), liveness=tracker)
+        captures = [s for s in stages if isinstance(s, CaptureStage)]
+        assert captures and captures[0]._liveness is tracker
+        # the source is registered (shows down before its first frame)
+        assert [s.source_id for s in tracker.snapshot(now=0.0).sources] == ["cam-1"]
+        assert any(isinstance(s, LivenessStage) for s in stages)  # Slack monitor sweeper
+        assert isinstance(stages[-1], DashboardStage)             # dashboard still last
+        assert stages[-1]._liveness is tracker
+
+    def test_build_stages_without_liveness_has_no_monitor(self):
+        stages = _build_stages(_full_cfg(), _FakeBus())
+        assert not any(isinstance(s, LivenessStage) for s in stages)
+
+    def test_disabled_liveness_skips_slack_monitor_but_keeps_dashboard_badge(self):
+        cfg = _full_cfg()
+        cfg.output.liveness.enabled = False
+        tracker = LivenessTracker(silence_seconds=30.0)
+        stages = _build_stages(cfg, _FakeBus(), liveness=tracker)
+        assert not any(isinstance(s, LivenessStage) for s in stages)
+        assert stages[-1]._liveness is tracker  # dashboard badge still wired
+
+    def test_on_event_records_only_restarts(self):
+        tracker = LivenessTracker(silence_seconds=30.0)
+        on_event = _liveness_on_event(tracker)
+        on_event("run_start", "inference")  # a normal start, not a restart
+        assert tracker.snapshot(now=0.0).recent_restarts == []
+        on_event("restart", "inference")
+        restarts = tracker.snapshot(now=0.0).recent_restarts
+        assert len(restarts) == 1 and restarts[0]["stage"] == "inference"
 
 
 class TestCaptureStage:

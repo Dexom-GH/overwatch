@@ -44,6 +44,34 @@ def test_state_dict_is_flat_json_serializable_shape():
     assert zones["pen-A"]["count"] == 5
     assert set(payload["recent_alerts"][0]) == {"timestamp", "severity", "title", "message"}
     assert set(payload["recent_events"][0]) == {"timestamp", "kind", "track_id", "zone_id"}
+    assert payload["liveness"] is None  # absent unless a liveness provider is wired
+
+
+# --- liveness block (#136) -------------------------------------------------
+
+
+def test_api_state_includes_liveness_when_provider_wired():
+    from overwatch.output.liveness import LivenessTracker
+
+    tracker = LivenessTracker(silence_seconds=30.0)
+    tracker.mark("cam-0", now=100.0)   # up
+    tracker.register("cam-1")          # down (no frames)
+    app = create_app(
+        _store_with_data(),
+        now=lambda: 100.0,
+        window_seconds=1000.0,
+        liveness_provider=lambda: tracker.snapshot(now=110.0),
+    )
+    live = TestClient(app).get("/api/state").json()["liveness"]
+    assert live["degraded"] is True
+    by_id = {s["source_id"]: s for s in live["sources"]}
+    assert by_id["cam-0"]["up"] is True and by_id["cam-0"]["last_frame_age_s"] == 10.0
+    assert by_id["cam-1"]["up"] is False and by_id["cam-1"]["last_frame_age_s"] is None
+
+
+def test_api_state_liveness_null_without_provider():
+    client = TestClient(create_app(_store_with_data(), now=lambda: 100.0, window_seconds=1000.0))
+    assert client.get("/api/state").json()["liveness"] is None
 
 
 # --- dashboard_summary (info-panel rollup, #121) ---------------------------

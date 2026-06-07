@@ -290,11 +290,27 @@ class DashboardConfig(_Strict):
     feed_mock_enabled: bool = False
 
 
+class LivenessConfig(_Strict):
+    """Operator-visible pipeline-liveness knobs (#136); see output/liveness.py.
+
+    A source with no frames for ``silence_seconds`` is shown **degraded** on the
+    dashboard and (when ``enabled``) raises a throttled Slack degraded alert;
+    recovery clears it. ``check_interval_seconds`` is how often the supervised
+    monitor evaluates liveness. The dashboard always renders liveness when it's on;
+    ``enabled`` gates only the Slack signal.
+    """
+
+    enabled: bool = True
+    silence_seconds: float = Field(default=30.0, gt=0.0, json_schema_extra=_MUST_TUNE)
+    check_interval_seconds: float = Field(default=10.0, gt=0.0)
+
+
 class OutputConfig(_Strict):
     slack: SlackConfig
     store: StoreConfig
     throttle: ThrottleConfig = Field(default_factory=ThrottleConfig)
     dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
+    liveness: LivenessConfig = Field(default_factory=LivenessConfig)
 
 
 class AppConfig(_Strict):

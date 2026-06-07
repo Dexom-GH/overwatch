@@ -282,3 +282,74 @@ footer.meta {
     background: #fff;
   }
 }
+
+/* --- pipeline liveness (#136) --- */
+.liveness {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.banner.warn {
+  background: #fff7e6;
+  color: #92590b;
+  border: 1px solid #f3d49b;
+  font-weight: 600;
+}
+
+.sources {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.src {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.65rem;
+  background: #fff;
+  border: 1px solid #e3e6eb;
+  border-radius: 0.4rem;
+  font-size: 0.85rem;
+}
+
+.src-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: #16a34a; /* up = green */
+}
+
+.src.down {
+  border-color: #f3b4b4;
+  background: #fff5f5;
+}
+
+.src.down .src-dot {
+  background: #dc2626; /* down = red */
+}
+
+.src-id {
+  font-weight: 600;
+}
+
+.src-age {
+  color: #6b7280;
+  font-variant-numeric: tabular-nums;
+}
+
+.src-state {
+  margin-left: 0.1rem;
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+}
+
+.src.restart {
+  border-color: #f3d49b;
+  background: #fff7e6;
+  color: #92590b;
+}
