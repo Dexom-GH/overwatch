@@ -34,6 +34,16 @@ forward a documented move rather than a silent one.
 
 ### Forward-port notes
 
+- **2026-06-07 — Client-canvas overlays DEFERRED V1→V2 (spike #119):** the
+  dashboard live-feed perf spike (#119) resolved ADR-0008's overlay-draw choice to
+  **burned-in `nvdsosd`** on measured Xavier NX numbers (burned-in 35 fps vs 41 fps
+  baseline — both clear a ≤25 fps camera, so the simplest path wins). The
+  **client-canvas overlay slice (#122)** — clean frames + browser-drawn,
+  toggleable boxes/zones/fences — therefore moves to **V2** (relabeled `v2`, removed
+  from the V1 milestone). Its flexibility/interactivity isn't needed in V1 and buys
+  nothing once burned-in already fits the budget. Like the lameness move below, this
+  is a documented V1→V2 boundary change, not a silent cut; recorded in ADR-0008.
+
 - **2026-06-02 — Lameness scoring DEFERRED V1→V2 (reverse of a forward-port):**
   Lameness scoring (depth + pose) is pulled **out** of V1 and parked in V2. It is
   the heaviest health signal, currently carries only placeholder thresholds, and

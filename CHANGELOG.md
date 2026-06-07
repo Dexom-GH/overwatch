@@ -126,5 +126,14 @@ All notable changes to Overwatch are recorded here. Format follows
   EventStore/host work — no DeepStream, no new bus topic. **Verified on-device** on the
   Jetson rendering against a real pipeline-produced store (150 records), served from the
   bundled `dist/` with no Node.
+- Live-feed perf spike → ADR-0008 Accepted (#119). On-device sweep
+  (`scripts/dev/bench_feed_tap.py`, Xavier NX) measured the dashboard feed tap vs the
+  detect+track baseline: baseline ~41 fps, **burned-in `nvdsosd` 35 fps**, clean
+  encode 40.8 fps — both clear a ≤25 fps camera with margin (no inference frame loss
+  at production rates). **Decisions:** transport = **throttled MJPEG-over-HTTP**;
+  overlay-draw = **burned-in `nvdsosd`** (→ the client-canvas slice #122 becomes
+  `v2-fwd`); bus path = **in-process latest-frame slot, no new bus topic** (frames stay
+  off the ZeroMQ tier and the SQLite store — ADR-0001 note added). The feed taps a
+  leaky `tee` after `nvtracker`, never the inference branch (the constraint for #120).
 
 [Unreleased]: https://github.com/Dexom-GH/overwatch/commits/master

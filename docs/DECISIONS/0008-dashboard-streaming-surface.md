@@ -1,11 +1,12 @@
 # ADR 0008 — Dashboard streaming surface (live operator feed)
 
-- **Status:**
-  - **Client architecture — Accepted** (decided by the project owner; see Decision).
-  - **Transport / overlay-draw / bus path — Proposed (OPEN)** — deferred to the
-    S1 spike (#119), which is perf-driven.
+- **Status: Accepted.**
+  - **Client architecture** — Accepted (project owner; see Decision).
+  - **Transport / overlay-draw / bus path** — Accepted, resolved by the **#119**
+    perf spike (2026-06-07) on measured Xavier NX numbers (see Decision +
+    Measurements).
 - **Date:** 2026-06-07
-- **Deciders:** project owner
+- **Deciders:** project owner; #119 spike (perf-driven)
 
 ## Context
 
@@ -78,8 +79,8 @@ bundle** that the backend serves as static assets.
 **Frameworks chosen (implemented in #124):** frontend **React + Vite + TypeScript**;
 backend **FastAPI + uvicorn** (pure-Python, pinned `<0.116` / `<0.34` to stay on the
 Jetson's Python 3.8). The backend exposes `GET /api/state` + `/api/health` and serves
-the prebuilt SPA `dist/`; transport for the live feed (MJPEG/SSE/WS) remains the
-**open** part below, owned by #119.
+the prebuilt SPA `dist/`. Transport + overlay-draw for the live feed were **resolved
+by #119** (below): **throttled MJPEG** + **burned-in `nvdsosd`**.
 
 This **fully supersedes the #18 dashboard surface**:
 
@@ -90,20 +91,40 @@ This **fully supersedes the #18 dashboard surface**:
 It also supersedes the narrow **"vanilla-JS only / no SPA / no build step"**
 amendment previously recorded for #18 — that amendment is **dropped entirely**.
 
-### Transport / overlay-draw location / bus path — OPEN
+### Transport / overlay-draw location / bus path — ACCEPTED (resolved by #119, 2026-06-07)
 
-**Deferred to the S1 spike (#119)**, which measures fps / CPU / GPU delta against
-the #84 fakesink baseline (reusing the #8 / #50 sweep tooling) and, from those
-numbers, picks:
+Resolved on measured Xavier NX numbers (see **Measurements**). The production
+source is a live camera at **≤25 fps** (ADR-0006 mono RTSP); the spike measured
+**max-throughput headroom** (720p file at `sync=0`) to size the tap's cost.
 
-- the **transport** (simplest one meeting the ~1–3 s bar on Xavier NX),
-- the **overlay-draw location** (burned-in vs client-canvas), and
-- the **bus path** (whether `infer.frame_annotated` is added — flagged for
-  contract review).
+- **(a) Transport — MJPEG-over-HTTP** (multipart `x-mixed-replace`). It meets the
+  ~1–3 s latency bar (in fact near-realtime), the JPEG encode is ~free (clean
+  encode cost ≈ 0.7 % fps), and it is served directly by the existing FastAPI
+  backend as a streaming response — **no HLS segmenting, no WebRTC**. The served
+  stream is **throttled to a few fps** (monitoring does not need 35 fps), keeping
+  bandwidth/CPU low.
+- **(b) Overlay-draw — burned-in `nvdsosd`** (on-GPU). Both options clear the
+  budget at camera rates, so V1 takes the **simplest** path: `nvdsosd` composites
+  boxes / labels / track-ids into the frame, `nvjpegenc` encodes, and the SPA shows
+  it as a plain MJPEG `<img>` — **no metadata channel, no frame/metadata sync, no
+  client overlay engine**. Its ~6 fps cost is immaterial at ≤25 fps. **Consequence:
+  the client-canvas slice (S4 / #122) is deferred to V2 (`v2-fwd`)** — its only edge
+  (near-free pipeline cost + toggleable overlays) buys V1 nothing once burned-in
+  already fits; it matters in V2 for interactivity.
+- **(c) Bus path — in-process latest-frame slot; NO new bus topic.** The pipeline
+  (`InferenceStage`) and the dashboard (`DashboardStage`) are threads in the **one**
+  `app.py` process, so the annotated JPEG passes via a thread-safe latest-frame slot
+  — frames **never touch the ZeroMQ bus, and never the SQLite store**. Lighter than
+  a bus topic and keeps the contract clean. **Contract-review flag: no
+  `bus/schemas.py` / `bus/topics.py` change in V1** (no `infer.frame_annotated`
+  topic). Revisit only if V2 needs multi-process / remote / multi-stream.
+- **Tap point — a `tee` branch after `nvtracker`, never the inference branch** (the
+  feed queue is **leaky**, so it drops under pressure and cannot backpressure
+  inference). This is the binding constraint for the S2 feed slice (#120).
 
-**ADR-0001 note:** live frames live on the **ephemeral ZeroMQ tier only**, never
-the durable SQLite EventStore. Whether a new `infer.frame_annotated` topic/schema
-is added is part of the S1 bus-path decision and goes to contract review.
+**ADR-0001 note:** confirmed — live frames are an **ephemeral** signal kept **off
+the bus entirely** (in-process slot), and a fortiori off the durable SQLite
+EventStore. No new topic/schema; **nothing for contract review to change in V1**.
 
 ## Options considered
 
@@ -130,6 +151,28 @@ is added is part of the S1 bus-path decision and goes to contract review.
   IDs / zone polygons / fence lines; enables toggles; needs a metadata transport
   and a contract decision (bus-path question).
 
+## Measurements (#119, 2026-06-07)
+
+On-device: Jetson Xavier NX, JetPack 5.1.x / DeepStream 6.x, stock-YOLOv8n FP16
+detector + NvDCF tracker, 720p H.264 sample at `sync=0` (max throughput — so the
+fps gap is pure GPU-headroom contention; a live camera caps at ≤25 fps). Harness:
+[`scripts/dev/bench_feed_tap.py`](../../scripts/dev/bench_feed_tap.py); GPU% via
+`tegrastats`. The feed branch is a **leaky `tee`** off the `nvtracker` src pad, so
+it cannot backpressure inference.
+
+| variant | inference fps | feed fps | GPU % |
+|---|---|---|---|
+| baseline (no feed) | 41.1–41.7 | — | 66 |
+| **burned-in `nvdsosd` → `nvjpegenc`** | **35.4** | 35.0 | 61 |
+| clean encode `nvjpegenc` (client-canvas) | 40.8 | 40.8 | 64 |
+
+Reading: the JPEG **encode is ~free** (−0.7 %); the cost of burned-in overlays is
+the **`nvdsosd` compositing** (−14 % at max throughput). Both clear a ≤25 fps camera
+with margin (35 fps ≫ 25 fps), so **neither drops inference frames at production
+rates** — burned-in wins on simplicity. (Power rails were not exposed by
+`tegrastats` on this unit; the sustained power-mode question is tracked separately
+in **#46** — note CPU ran with 2 of 6 cores shed during the sweep.)
+
 ## Consequences
 
 - A **scaffolding chore** stands up the SPA toolchain + CI build job and shifts
@@ -138,9 +181,9 @@ is added is part of the S1 bus-path decision and goes to contract review.
   S3 console shell / alerts + info panel #121, S4 overlays #122) build on.
 - The **deploy path** (`scripts/target/deploy.sh`) must ship the CI-built `dist/`
   to the Jetson alongside the Python package; no Node is provisioned on-device.
-- Transport / overlay / bus consequences are **filled in once S1 (#119) decides** —
-  they shape the dashboard server's stream endpoint, the DeepStream pipeline tap
-  point (a tee/branch, **not** the inference branch), and possibly a new bus
-  topic/schema if client-canvas is chosen. The overlay-draw choice gates whether
-  the S4 client-canvas slice (#122) proceeds in V1 or converts to a `v2-fwd`
-  candidate.
+- **Transport / overlay / bus consequences (resolved by #119):** the S2 feed slice
+  (#120) taps a `tee` after `nvtracker` → `nvdsosd` → `nvjpegenc` → an in-process
+  latest-frame slot, served as **throttled MJPEG** by the FastAPI backend and shown
+  as an `<img>` in the SPA. **No `bus/schemas.py` / `bus/topics.py` change.** The
+  **client-canvas slice (S4 / #122) converts to `v2-fwd`** (burned-in chosen). The
+  scaffolding (#124) and console shell (#121) are **done**; #120 is unblocked.
