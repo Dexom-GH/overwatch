@@ -100,6 +100,7 @@ class FusionStage(Stage):
             zone_thresholds=thresholds,
             immobility_seconds=cfg.fusion.health.immobility_seconds,
             immobility_classes=cfg.fusion.health.immobility_classes,
+            immobility_class_seconds=cfg.fusion.health.immobility_class_seconds,
             record_sink=self._publish_record,
             # Stamp records with WALL-CLOCK time: the durable store, the operator
             # dashboard's trailing-window query, and age-based retention all compare

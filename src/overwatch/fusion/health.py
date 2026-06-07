@@ -52,7 +52,12 @@ class HealthMonitor:
     ``classes`` optionally restricts immobility to specific detector classes
     (case-insensitive). ``None`` (default) watches every track; a collection (e.g.
     ``{"sheep", "goat", "cow"}``) makes only those classes trip immobility — so a
-    stationary TV/chair in a COCO scene no longer fires. Other rules are unaffected.
+    stationary TV/chair in a COCO scene no longer fires.
+
+    ``class_seconds`` gives **per-class dwell thresholds** (case-insensitive), so a
+    class that legitimately holds still for long (e.g. ``person`` — people sit, rest,
+    sleep) needs a much longer dwell before alerting than livestock. A class without
+    an override falls back to ``immobility_seconds``. Other rules are unaffected.
     """
 
     def __init__(
@@ -60,6 +65,7 @@ class HealthMonitor:
         immobility_seconds: float,
         move_threshold_px: float = 25.0,
         classes: "Optional[Collection[str]]" = None,
+        class_seconds: "Optional[Dict[str, float]]" = None,
     ) -> None:
         self._immobility_seconds = immobility_seconds
         self._move_threshold = move_threshold_px
@@ -68,18 +74,29 @@ class HealthMonitor:
         self._classes: "Optional[Set[str]]" = (
             None if classes is None else {c.lower() for c in classes}
         )
+        # Per-class dwell threshold overrides (lower-cased keys); fall back to
+        # ``immobility_seconds`` for any class not listed.
+        self._class_seconds: "Dict[str, float]" = (
+            {} if not class_seconds else {k.lower(): float(v) for k, v in class_seconds.items()}
+        )
         self._dwell: Dict[int, _TrackDwell] = {}
+
+    def _threshold_for(self, class_name: str) -> float:
+        """The dwell threshold for ``class_name`` — its override, else the default."""
+        return self._class_seconds.get(class_name.lower(), self._immobility_seconds)
 
     @classmethod
     def from_config(cls, cfg: object, move_threshold_px: float = 25.0) -> "HealthMonitor":
         """Build from a health-config object exposing ``immobility_seconds`` (duck-typed).
 
-        Also reads an optional ``immobility_classes`` allow-list if the config has one.
+        Also reads optional ``immobility_classes`` (allow-list) and
+        ``immobility_class_seconds`` (per-class threshold overrides) if present.
         """
         return cls(
             immobility_seconds=cfg.immobility_seconds,  # type: ignore[attr-defined]
             move_threshold_px=move_threshold_px,
             classes=getattr(cfg, "immobility_classes", None),
+            class_seconds=getattr(cfg, "immobility_class_seconds", None),
         )
 
     def update_immobility(self, timestamp: float, track: Track) -> Optional[HealthSignal]:
@@ -108,7 +125,7 @@ class HealthMonitor:
             dwell.emitted = False
             return None
 
-        if not dwell.emitted and (timestamp - dwell.since) >= self._immobility_seconds:
+        if not dwell.emitted and (timestamp - dwell.since) >= self._threshold_for(track.class_name):
             dwell.emitted = True
             stationary = timestamp - dwell.since
             return HealthSignal(

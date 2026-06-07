@@ -95,6 +95,7 @@ class MonoAlertFanout:
         immobility_seconds: float = 600.0,
         move_threshold_px: float = 25.0,
         immobility_classes: "Optional[Collection[str]]" = None,
+        immobility_class_seconds: "Optional[Dict[str, float]]" = None,
         clock: "Callable[[], float]" = time.monotonic,
         record_sink: "Optional[RecordSink]" = None,
     ) -> None:
@@ -104,7 +105,10 @@ class MonoAlertFanout:
         self._record_sink = record_sink
         self._events = EventDetector(fences or [])
         self._health = HealthMonitor(
-            immobility_seconds, move_threshold_px=move_threshold_px, classes=immobility_classes
+            immobility_seconds,
+            move_threshold_px=move_threshold_px,
+            classes=immobility_classes,
+            class_seconds=immobility_class_seconds,
         )
         self._counter = ZoneCounter(zones or [], thresholds=zone_thresholds)
         self._assembler = FrameAssembler(self._on_frame, clock=clock)

@@ -143,6 +143,11 @@ class HealthConfig(_Strict):
     # watch every class (default). Set e.g. ["sheep","goat","cow","horse","dog","cat",
     # "bird"] so stationary furniture/objects in a COCO scene don't trip it.
     immobility_classes: Optional[List[str]] = None
+    # Per-class dwell-threshold overrides in seconds (case-insensitive), for classes
+    # that legitimately hold still (a person rests/sleeps — needs far longer than
+    # livestock). A class without an override uses immobility_seconds. e.g.
+    # {person: 1800}.
+    immobility_class_seconds: Optional[Dict[str, float]] = None
 
 
 class EventsConfig(_Strict):

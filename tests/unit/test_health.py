@@ -111,6 +111,40 @@ def test_from_config_reads_immobility_classes():
     assert mon.update_immobility(10.0, _classed_track(2, "person")) is None    # not listed
 
 
+def test_per_class_threshold_overrides_default():
+    # person rests/sleeps -> needs a much longer dwell than the default (animal) one
+    mon = HealthMonitor(immobility_seconds=10.0, move_threshold_px=5.0,
+                        class_seconds={"person": 100.0})
+    mon.update_immobility(0.0, _classed_track(1, "person"))
+    assert mon.update_immobility(10.0, _classed_track(1, "person")) is None   # < person's 100s
+    assert mon.update_immobility(50.0, _classed_track(1, "person")) is None   # still < 100s
+    assert mon.update_immobility(100.0, _classed_track(1, "person")) is not None  # crosses
+
+
+def test_class_without_override_uses_default_threshold():
+    mon = HealthMonitor(immobility_seconds=10.0, move_threshold_px=5.0,
+                        class_seconds={"person": 100.0})
+    mon.update_immobility(0.0, _track(1, 10, 10))                       # sheep, no override
+    assert mon.update_immobility(10.0, _track(1, 10, 10)) is not None   # default 10s applies
+
+
+def test_per_class_threshold_is_case_insensitive():
+    mon = HealthMonitor(immobility_seconds=10.0, move_threshold_px=5.0,
+                        class_seconds={"PERSON": 100.0})
+    mon.update_immobility(0.0, _classed_track(1, "person"))
+    assert mon.update_immobility(10.0, _classed_track(1, "person")) is None   # override matched
+
+
+def test_from_config_reads_per_class_seconds():
+    cfg = type("HC", (), {"immobility_seconds": 10.0, "immobility_classes": None,
+                          "immobility_class_seconds": {"person": 100}})()
+    mon = HealthMonitor.from_config(cfg, move_threshold_px=5.0)
+    mon.update_immobility(0.0, _classed_track(1, "person"))
+    assert mon.update_immobility(10.0, _classed_track(1, "person")) is None      # person 100s
+    mon.update_immobility(0.0, _classed_track(2, "sheep"))
+    assert mon.update_immobility(10.0, _classed_track(2, "sheep")) is not None   # default 10s
+
+
 def test_per_track_state_is_independent():
     mon = HealthMonitor(immobility_seconds=10.0, move_threshold_px=5.0)
     mon.update_immobility(0.0, _track(1, 10, 10))
