@@ -33,11 +33,10 @@ whole point of building off-device.
   `appsink` writes it (`put`); the `/api/feed` MJPEG stream reads it (`wait_for`).
   Frames stay **in-process** — off the ZeroMQ bus and the SQLite store (ADR-0001).
   `app.py` shares one slot between the `InferenceStage` (producer) and
-  `DashboardStage` (consumer); `output.dashboard.feed_enabled`/`feed_fps` gate it.
-  **`feed_enabled` defaults OFF**: the feed works, but a known DeepStream
-  NULL-teardown hang on mid-stream stop means the supervised app won't shut down
-  cleanly with it on — enable it for demos (hard stop acceptable); graceful teardown
-  is a tracked follow-up.
+  `DashboardStage` (consumer); `output.dashboard.feed_enabled`/`feed_fps` gate it
+  (on by default). The pipeline tap is a **`fakesink` + buffer probe** on the
+  encoder src pad — not an `appsink` — so the DeepStream `NULL` teardown stays clean
+  when stopping mid-stream (#129).
 - `web/` — the **React + Vite + TypeScript SPA** (its own host-side toolchain;
   never imports the `overwatch` package). Build commands + scope in
   [`web/README.md`](web/README.md). The TS types in `web/src/api.ts` mirror
