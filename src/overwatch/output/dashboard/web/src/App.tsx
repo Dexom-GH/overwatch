@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { fetchFeeds, fetchState, type DashboardState } from './api'
+import { fetchFeeds, fetchState, type DashboardState, type Liveness } from './api'
 import { humanizeEventKind, mergeActivity, relativeTime, type ActivityItem } from './feed'
 
 const DEFAULT_POLL_SECONDS = 5
@@ -72,6 +72,8 @@ export default function App() {
 
       {state && (
         <>
+          <LivenessBar liveness={state.liveness} />
+
           <InfoPanel state={state} />
 
           <section>
@@ -192,6 +194,40 @@ function LiveFeed() {
           onError={() => setOffline(true)}
         />
       )}
+    </section>
+  )
+}
+
+// Operator-visible pipeline liveness (#136): a degraded banner when any source has
+// gone silent (or a stage just restarted), plus a per-source up/down strip with
+// last-frame age. Hidden entirely when liveness tracking is not wired (null).
+function LivenessBar({ liveness }: { liveness: Liveness | null }) {
+  if (!liveness) return null
+  const ageLabel = (age: number | null) =>
+    age === null ? 'no frames yet' : `${Math.round(age)}s ago`
+  return (
+    <section className={`liveness${liveness.degraded ? ' is-degraded' : ''}`}>
+      {liveness.degraded && (
+        <p className="banner warn" role="status">
+          ⚠ pipeline degraded — a camera has stopped sending frames
+        </p>
+      )}
+      <ul className="sources">
+        {liveness.sources.map((s) => (
+          <li key={s.source_id} className={`src ${s.up ? 'up' : 'down'}`}>
+            <span className="src-dot" aria-hidden="true" />
+            <span className="src-id">{s.source_id}</span>
+            <span className="src-age">{ageLabel(s.last_frame_age_s)}</span>
+            <span className="src-state">{s.up ? 'up' : 'down'}</span>
+          </li>
+        ))}
+        {liveness.recent_restarts.map((r, i) => (
+          <li key={`restart-${i}`} className="src restart">
+            <span className="src-id">{r.stage} restarted</span>
+            <span className="src-age">{Math.round(r.age_s)}s ago</span>
+          </li>
+        ))}
+      </ul>
     </section>
   )
 }

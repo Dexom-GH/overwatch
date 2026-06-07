@@ -46,18 +46,28 @@ class CaptureStage(Stage):
     """
 
     def __init__(
-        self, source: "CaptureSource", bus: "MessageBus", name: str = "capture"
+        self,
+        source: "CaptureSource",
+        bus: "MessageBus",
+        name: str = "capture",
+        *,
+        liveness: "Optional[Any]" = None,
     ) -> None:
         self._source = source
         self._bus = bus
         self._name = name
+        self._liveness = liveness  # LivenessTracker (#136); marked per published frame
 
     @property
     def name(self) -> str:
         return self._name
 
     def run(self, stop: "threading.Event") -> None:
-        n = run_capture(self._source, self._bus, stop=stop)
+        on_frame = None
+        if self._liveness is not None:
+            liveness = self._liveness
+            on_frame = lambda source_id: liveness.mark(source_id, time.monotonic())  # noqa: E731
+        n = run_capture(self._source, self._bus, stop=stop, on_frame=on_frame)
         _LOG.info("capture stage stopped after %d frames", n)
 
 
@@ -285,6 +295,33 @@ class RetentionStage(Stage):
                 store.close()
 
 
+class LivenessStage(Stage):
+    """Periodically evaluates pipeline liveness; raises degraded/recovered alerts (#136).
+
+    A supervised sweeper (mirrors :class:`RetentionStage`): every
+    ``interval_seconds`` it calls the :class:`~overwatch.output.liveness_monitor.
+    LivenessMonitor`, which raises a **throttled Slack degraded** alert when a source
+    falls silent and a **recovered** alert when its frames resume. The wait is on the
+    ``stop`` event, so shutdown is immediate. Host-runnable (the monitor is pure with
+    an injected clock); a real source loss on the Jetson is the on-device bar (AC6).
+    """
+
+    def __init__(
+        self, monitor: "Any", *, interval_seconds: float, name: str = "liveness"
+    ) -> None:
+        self._monitor = monitor
+        self._interval = interval_seconds
+        self._name = name
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    def run(self, stop: "threading.Event") -> None:
+        while not stop.wait(self._interval):
+            self._monitor.check()
+
+
 class DashboardStage(Stage):
     """Serves the read-only operator console as a supervised stage (#110). Host-runnable.
 
@@ -308,11 +345,13 @@ class DashboardStage(Stage):
         store: "Optional[Any]" = None,
         feeds: "Optional[Any]" = None,
         feeders: "Optional[Any]" = None,
+        liveness: "Optional[Any]" = None,
         name: str = "dashboard",
     ) -> None:
         self._cfg = cfg
         self._server = server
         self._store = store
+        self._liveness = liveness  # LivenessTracker (#136) -> /api/state liveness block
         # Live feeds (#120/#132): {source -> FrameSlot} served at /api/feed/{source};
         # `feeders` are the non-pipeline producers (raw/mock) this stage starts/stops.
         self._feeds = feeds or {}
@@ -339,6 +378,10 @@ class DashboardStage(Stage):
                     raise RuntimeError("DashboardStage needs a sqlite store path")
                 store = SqliteEventStore(store_path)
                 own_store = store
+            provider = None
+            if self._liveness is not None:
+                liveness = self._liveness
+                provider = lambda: liveness.snapshot(time.monotonic())  # noqa: E731
             server = make_server(
                 store,
                 host=dash.host,
@@ -350,6 +393,7 @@ class DashboardStage(Stage):
                 refresh_seconds=dash.refresh_seconds,
                 alert_limit=dash.alert_limit,
                 event_limit=dash.event_limit,
+                liveness_provider=provider,
             )
         for feeder in self._feeders:  # start the raw/mock producers (#132)
             feeder.start()
@@ -480,7 +524,9 @@ def _build_source(src_cfg: "Any") -> "CaptureSource":
     raise ValueError("unknown capture source type: {!r}".format(src_cfg.type))
 
 
-def _build_stages(cfg: "AppConfig", bus: "MessageBus") -> "List[Stage]":
+def _build_stages(
+    cfg: "AppConfig", bus: "MessageBus", *, liveness: "Optional[Any]" = None
+) -> "List[Stage]":
     """Construct the runnable stages in pipeline order.
 
     Full pipeline order (#38): capture -> inference -> fusion -> output. One
@@ -494,7 +540,11 @@ def _build_stages(cfg: "AppConfig", bus: "MessageBus") -> "List[Stage]":
     # capture (one per source; ZED is target-only/import-guarded)
     for src_cfg in cfg.capture.sources:
         source = _build_source(src_cfg)
-        stages.append(CaptureStage(source, bus, name="capture:" + src_cfg.source_id))
+        if liveness is not None:
+            liveness.register(src_cfg.source_id)  # show the source as down before its first frame
+        stages.append(
+            CaptureStage(source, bus, name="capture:" + src_cfg.source_id, liveness=liveness)
+        )
 
     # inference -> fusion -> output, in pipeline order. One InferenceStage drives
     # the DeepStream pipeline; multi-source nvstreammux batching is #32. The
@@ -566,6 +616,24 @@ def _build_stages(cfg: "AppConfig", bus: "MessageBus") -> "List[Stage]":
     stages.append(FusionStage(bus, cfg))
     stages.append(OutputStage(bus, cfg))
 
+    # Liveness monitor (#136): a sweeper that raises a throttled Slack degraded /
+    # recovered alert as sources fall silent / return. Independent of the durable
+    # store (Slack-only path); `enabled` gates the Slack signal, not the dashboard
+    # badge. Keyed per-source via its own throttle, so it posts directly to Slack
+    # rather than through the main (zone/track-keyed) output throttle.
+    if liveness is not None and cfg.output.liveness.enabled:
+        from overwatch.output.liveness_monitor import LivenessMonitor
+        from overwatch.output.slack import SlackAlertSink
+
+        monitor = LivenessMonitor(
+            liveness,
+            SlackAlertSink(cfg.output.slack.webhook or "").send,
+            cooldown_seconds=cfg.output.throttle.cooldown_seconds,
+        )
+        stages.append(
+            LivenessStage(monitor, interval_seconds=cfg.output.liveness.check_interval_seconds)
+        )
+
     # Durable tier (sqlite backend): the StoreStage writes records and the
     # RetentionStage bounds them during 24/7 operation. Both open the store lazily
     # from the configured path (no filesystem side effect at construction).
@@ -581,15 +649,31 @@ def _build_stages(cfg: "AppConfig", bus: "MessageBus") -> "List[Stage]":
             )
         )
         if dash_cfg.enabled:
-            stages.append(DashboardStage(cfg, feeds=feeds, feeders=feeders))
+            stages.append(DashboardStage(cfg, feeds=feeds, feeders=feeders, liveness=liveness))
     return stages
+
+
+def _liveness_on_event(liveness: "Any") -> "Any":
+    """A Supervisor ``on_event`` hook that records stage restarts into the tracker (#136, AC3)."""
+
+    def on_event(event: str, name: "Optional[str]") -> None:
+        _LOG.info("orchestrator event: %s%s", event, "" if name is None else " [" + name + "]")
+        if event == "restart" and name is not None:
+            liveness.note_restart(name, time.monotonic())
+
+    return on_event
 
 
 def build_supervisor(cfg: "AppConfig") -> Supervisor:
     """Wire the bus + stages into a Supervisor. TARGET-ONLY (constructs live stages)."""
+    from overwatch.output.liveness import LivenessTracker
+
     bus = _build_bus(cfg)
-    stages = _build_stages(cfg, bus)
-    return Supervisor(stages, bus=bus)
+    # One shared, in-process liveness tracker (#136): capture marks it, the dashboard
+    # reads it, the monitor alerts on it, and the supervisor records restarts into it.
+    liveness = LivenessTracker(silence_seconds=cfg.output.liveness.silence_seconds)
+    stages = _build_stages(cfg, bus, liveness=liveness)
+    return Supervisor(stages, bus=bus, on_event=_liveness_on_event(liveness))
 
 
 def run_pipeline(

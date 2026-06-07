@@ -176,5 +176,18 @@ All notable changes to Overwatch are recorded here. Format follows
   feeders, so the console shows a real camera on the host with no DeepStream.
   **Verified on the Jetson:** `RtspFeeder` decodes the live camera (real 1080p
   frames) and stops cleanly; the SPA toggle switches sources (host).
+- Operator-visible pipeline-degraded / liveness indicator (#136). "No alerts" no
+  longer looks like "camera dead": a new **in-process** `LivenessTracker`
+  (`output/liveness.py`) records per-source last-frame time + recent stage restarts
+  (no bus topic/schema change — the dashboard is in-process). Capture marks it per
+  published frame (`run_capture` `on_frame` hook), the #38 supervisor records
+  restarts via its `on_event` hook, the dashboard `/api/state` gains a **liveness**
+  block (per-source `up`/`last_frame_age_s` + a `degraded` rollup) rendered as a
+  badge strip + **degraded banner** in the SPA, and a `LivenessMonitor` sweeper
+  (`output/liveness_monitor.py`) raises a **throttled Slack** degraded/recovered
+  alert as a source falls silent / returns (keyed per-source via its own throttle).
+  Config: `output.liveness` (`enabled`, `silence_seconds` [must-tune],
+  `check_interval_seconds`). Host-tested against a simulated stalled source;
+  **on-device** (real source loss → degraded → recovery) is the remaining sign-off.
 
 [Unreleased]: https://github.com/Dexom-GH/overwatch/commits/master

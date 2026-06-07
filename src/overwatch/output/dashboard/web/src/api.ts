@@ -31,6 +31,24 @@ export interface Summary {
   last_activity_at: number | null
 }
 
+export interface SourceLiveness {
+  source_id: string
+  up: boolean
+  last_frame_age_s: number | null
+}
+
+export interface Restart {
+  stage: string
+  age_s: number
+}
+
+// Operator-visible pipeline liveness (#136); null when liveness tracking is not wired.
+export interface Liveness {
+  degraded: boolean
+  sources: SourceLiveness[]
+  recent_restarts: Restart[]
+}
+
 export interface DashboardState {
   generated_at: number
   refresh_seconds: number
@@ -38,6 +56,7 @@ export interface DashboardState {
   zone_counts: ZoneCount[]
   recent_alerts: AlertRow[]
   recent_events: EventRow[]
+  liveness: Liveness | null
 }
 
 export async function fetchState(signal?: AbortSignal): Promise<DashboardState> {

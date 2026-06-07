@@ -72,6 +72,11 @@ output:
     cooldown_seconds: 60      # collapse identical alerts within this window (0 disables)
     max_per_window: null      # global burst cap per rate window (null = unlimited)
     rate_window_seconds: 60   # window for the burst cap
+  liveness:
+    # Operator-visible pipeline degraded/liveness signal (#136).
+    enabled: true             # gate the Slack degraded/recovered signal (dashboard always shows it)
+    silence_seconds: 30       # a source silent this long -> degraded (must-tune vs source fps)
+    check_interval_seconds: 10 # how often the supervised monitor evaluates liveness
   dashboard:
     # Read-only operator dashboard (#18): thin local HTML, static refresh.
     enabled: true             # run the supervised dashboard server with the pipeline (#110)

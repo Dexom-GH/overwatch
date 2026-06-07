@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from overwatch.bus.schemas import Alert, Event, ZoneCount
     from overwatch.output.dashboard.frame_slot import FrameSlot
     from overwatch.output.dashboard.view import DashboardState
+    from overwatch.output.liveness import LivenessSnapshot
     from overwatch.output.store import EventStore
 
 _LOG = logging.getLogger(__name__)
@@ -100,11 +101,34 @@ def dashboard_summary(state: "DashboardState") -> "Dict[str, Any]":
     }
 
 
-def state_dict(state: "DashboardState", *, refresh_seconds: int = 5) -> "Dict[str, Any]":
+def _liveness_dict(snapshot: "LivenessSnapshot") -> "Dict[str, Any]":
+    """Serialize a liveness snapshot for the SPA (#136) — flat, JSON-safe."""
+    return {
+        "degraded": snapshot.degraded,
+        "sources": [
+            {
+                "source_id": s.source_id,
+                "up": s.up,
+                "last_frame_age_s": s.last_frame_age_s,
+            }
+            for s in snapshot.sources
+        ],
+        "recent_restarts": snapshot.recent_restarts,
+    }
+
+
+def state_dict(
+    state: "DashboardState",
+    *,
+    refresh_seconds: int = 5,
+    liveness: "Optional[Dict[str, Any]]" = None,
+) -> "Dict[str, Any]":
     """Serialize a :class:`DashboardState` to the JSON shape the SPA consumes.
 
     Explicit, flat dicts (not raw dataclasses) so the client contract is stable and
-    nothing heavy (numpy, nested ``detail``) leaks across the wire.
+    nothing heavy (numpy, nested ``detail``) leaks across the wire. ``liveness`` is
+    the operator-visible degraded/liveness block (#136), or ``None`` when liveness
+    tracking is not wired (the SPA hides the badge).
     """
     return {
         "generated_at": state.generated_at,
@@ -113,6 +137,7 @@ def state_dict(state: "DashboardState", *, refresh_seconds: int = 5) -> "Dict[st
         "zone_counts": [_zone_count_dict(c) for c in state.zone_counts],
         "recent_alerts": [_alert_dict(a) for a in state.recent_alerts],
         "recent_events": [_event_dict(e) for e in state.recent_events],
+        "liveness": liveness,
     }
 
 
@@ -176,6 +201,7 @@ def create_app(
     refresh_seconds: int = 5,
     alert_limit: int = 10,
     event_limit: int = 10,
+    liveness_provider: "Optional[Callable[[], Optional[LivenessSnapshot]]]" = None,
 ) -> "FastAPI":
     """Build the read-only dashboard FastAPI app (host-testable without a socket).
 
@@ -209,7 +235,9 @@ def create_app(
             alert_limit=alert_limit,
             event_limit=event_limit,
         )
-        return state_dict(state, refresh_seconds=refresh_seconds)
+        snapshot = liveness_provider() if liveness_provider is not None else None
+        liveness = _liveness_dict(snapshot) if snapshot is not None else None
+        return state_dict(state, refresh_seconds=refresh_seconds, liveness=liveness)
 
     # Live feeds (#120 detection / #132 raw + mock). /api/feeds lists the available
     # sources (so the SPA builds its toggle); /api/feed/{source} streams one as
@@ -300,12 +328,14 @@ def make_server(
     refresh_seconds: int = 5,
     alert_limit: int = 10,
     event_limit: int = 10,
+    liveness_provider: "Optional[Callable[[], Optional[LivenessSnapshot]]]" = None,
 ) -> "DashboardServer":
     """Build (binding the port, but not yet serving) the read-only dashboard server.
 
     Pass ``port=0`` to bind an ephemeral port — the chosen ``(host, port)`` is then
     on ``server.server_address`` (used by host tests to serve on localhost). Pass
-    ``feeds`` (name -> FrameSlot) to expose the live MJPEG feeds (#120/#132).
+    ``feeds`` (name -> FrameSlot) to expose the live MJPEG feeds (#120/#132), and
+    ``liveness_provider`` to surface the degraded/liveness block (#136).
     """
     app = create_app(
         store,
@@ -317,6 +347,7 @@ def make_server(
         refresh_seconds=refresh_seconds,
         alert_limit=alert_limit,
         event_limit=event_limit,
+        liveness_provider=liveness_provider,
     )
     return DashboardServer(app, host=host, port=port)
 
