@@ -50,18 +50,55 @@ classes, nor that it stays real-time once fine-tuned. That comparison is the
 **PENDING — decided by the B1 gate spike (#147).** Status stays **Proposed** until
 B1 reports measured numbers.
 
-**Gate rule (PO-approved):** adopt YOLOv11 **iff**
+**Gate rule (PO-approved).** Adopt YOLOv11 **iff all three** sub-gates pass:
 
-- its **per-class mAP ≥ YOLOv8's**, **AND**
-- it sustains **on-device fps ≥ camera rate** (real-time).
+1. **Animal classes (relative, ≥ v8):** per-class mAP@0.5 for **sheep, goat,
+   poultry** is **≥ YOLOv8's** (baseline #77), measured on the **#77 animal val
+   split** at identical input resolution. This is the apples-to-apples comparison
+   the original rule was written for, and it stays unchanged.
+2. **`person` (absolute, recall-first):** the v8 detector (#77) has **no `person`
+   class**, so there is **no v8 person baseline to beat** — a relative "≥ v8" gate
+   is *undecidable* for `person` (surfaced by B0, #146). `person` is therefore
+   judged against an **absolute, in-domain bar** measured on the **bespoke
+   farm-person VAL set** (built from #89 footage; the B0 §5 prerequisite). The bar
+   is, in priority order:
 
-**fps is a hard gate, not informational.** If v11 fails either condition,
-**keep YOLOv8 and demote YOLOv11 to V2.**
+   - **(primary, hard) Recall floor:** **person recall ≥ 0.90** at the deployed
+     operating point (the `pre-cluster-threshold` / conf used for the demo, the
+     same threshold used to measure fps), counting a detection at **IoU ≥ 0.5**.
+     *Missing a person on a working farm is a safety event; a spurious person
+     alert is a nuisance — so recall, not mAP, is the binding constraint.*
+   - **(secondary, hard) No-regression vs off-the-shelf:** the fine-tuned v11's
+     person recall **must be ≥ stock `yolo11n`'s person recall measured on the
+     SAME farm-person val set**. This guarantees the farm fine-tune + the B0
+     anti-forgetting recipe (COCO-person mix, frozen backbone/neck, all humans
+     labeled) **did not erode** the off-the-shelf person capability in our domain.
+   - **(informational) Precision / mAP:** report person mAP@0.5 and
+     precision-at-operating-point for the record; they do **not** gate (low
+     precision = nuisance alerts, acceptable for V1; can be tuned later).
 
-Both metrics are measured on **identical val data + input resolution**, v11 vs v8
-(baseline #77, ~56 fps from #15). B1 also adds a **value-verification step**:
-assert **non-NaN engine output on a real frame** before deploy (the current export
-guard only checks opset/layout).
+   **Val-set validity (hard, PO-set 2026-06-07):** the farm-person val set must
+   contain **≥ 300 labeled person instances** for the recall estimate to be
+   statistically usable (people are large/few-per-frame, so B0's ~100–300 frames
+   may need expanding to hit this). If it has fewer, B1 **must expand the val set**
+   before the gate is valid — the gate may **not** be passed on a sub-300-instance
+   estimate.
+3. **fps (absolute, hard):** sustained **on-device fps ≥ 30 fps** (the V1 camera
+   rate; PO-set 2026-06-07), measured at the same operating point as the
+   person-recall measurement (baseline: v8 ~56 fps from #15; spike A saw v11n
+   ~47 fps single-stream — both clear 30, so fps is expected to bind only once
+   multi-stream batching is added).
+
+**All three are hard gates.** If v11 fails **any** of them, **keep YOLOv8 and
+demote YOLOv11 to V2.**
+
+**Measurement substrate.** Animal sub-gate (1) is measured on the **#77 animal val
+split**; the `person` sub-gate (2) is measured on the **bespoke farm-person VAL
+set from #89** (B0 §5 — a B1 prerequisite, not optional); the fps sub-gate (3) is
+measured on-device at the deployed operating point. All metrics use identical input
+resolution to the deployed engine. B1 also adds a **value-verification step**:
+assert **non-NaN engine output on a real frame** before deploy/measure (the current
+export guard only checks opset/layout).
 
 ## Consequences
 
