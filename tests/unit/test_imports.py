@@ -33,6 +33,7 @@ HOST_SAFE_MODULES = [
     "overwatch.inference.deepstream.probes",
     "overwatch.inference.reid.megadescriptor",   # guarded import
     "overwatch.inference.reid.gallery",
+    "overwatch.inference.reid.enroll",           # gallery enroll CLI (host core; #137)
     "overwatch.fusion",
     "overwatch.fusion.depth_fusion",
     "overwatch.fusion.zones",                # zone/fence format + geometry (#12)
