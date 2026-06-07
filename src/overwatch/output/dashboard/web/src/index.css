@@ -83,40 +83,6 @@ ul {
   font-size: 0.82rem;
 }
 
-.alerts .sev {
-  text-transform: uppercase;
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  padding: 0.1rem 0.45rem;
-  border-radius: 0.25rem;
-  background: #e5e7eb;
-  color: #374151;
-}
-
-.alerts .title {
-  font-weight: 600;
-}
-
-.alerts .message {
-  color: #6b7280;
-}
-
-.sev-critical .sev {
-  background: #fee2e2;
-  color: #991b1b;
-}
-
-.sev-warning .sev {
-  background: #fef3c7;
-  color: #92400e;
-}
-
-.sev-info .sev {
-  background: #dbeafe;
-  color: #1e40af;
-}
-
 .empty {
   color: #9ca3af;
   font-style: italic;
@@ -126,4 +92,132 @@ footer.meta {
   margin-top: 2rem;
   padding-top: 1rem;
   border-top: 1px solid #e3e6eb;
+}
+
+/* --- info panel (#121) --- */
+.info-panel {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.stat {
+  background: #fff;
+  border: 1px solid #e3e6eb;
+  border-radius: 0.5rem;
+  padding: 0.75rem 0.9rem;
+}
+
+.stat-value {
+  font-size: 1.6rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.stat-label {
+  margin-top: 0.2rem;
+  font-size: 0.78rem;
+  color: #6b7280;
+}
+
+.stat-critical {
+  border-color: #f3b4b4;
+  background: #fff5f5;
+}
+
+.stat-critical .stat-value {
+  color: #991b1b;
+}
+
+/* --- activity strip (#121) --- */
+.activity {
+  gap: 0.35rem;
+}
+
+.activity .row {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr auto;
+  grid-template-areas: 'badge title time' 'badge detail time';
+  align-items: center;
+  gap: 0 0.75rem;
+  padding: 0.5rem 0.8rem;
+  background: #fff;
+  border: 1px solid #e3e6eb;
+  border-left: 3px solid #cbd2db;
+  border-radius: 0.4rem;
+}
+
+.activity .badge {
+  grid-area: badge;
+  justify-self: start;
+  text-transform: uppercase;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.25rem;
+  background: #e5e7eb;
+  color: #374151;
+}
+
+.activity .row-title {
+  grid-area: title;
+  font-weight: 600;
+}
+
+.activity .row-detail {
+  grid-area: detail;
+  color: #6b7280;
+  font-size: 0.85rem;
+}
+
+.activity .row-time {
+  grid-area: time;
+  color: #9ca3af;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.row.sev-critical {
+  border-left-color: #dc2626;
+}
+.row.sev-warning {
+  border-left-color: #d97706;
+}
+.row.sev-info {
+  border-left-color: #2563eb;
+}
+.row.kind-event {
+  border-left-color: #6b7280;
+}
+
+/* severity-colored activity badges */
+.row.sev-critical .badge {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.row.sev-warning .badge {
+  background: #fef3c7;
+  color: #92400e;
+}
+.row.sev-info .badge {
+  background: #dbeafe;
+  color: #1e40af;
+}
+
+.row.is-new {
+  animation: flash-new 1.6s ease-out;
+}
+
+@keyframes flash-new {
+  from {
+    background: #fffbe6;
+    box-shadow: inset 3px 0 0 #f59e0b;
+  }
+  to {
+    background: #fff;
+  }
 }

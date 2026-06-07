@@ -10,7 +10,12 @@ host-runnable: FastAPI ``TestClient`` over in-memory SQLite, no real sockets.
 from fastapi.testclient import TestClient
 
 from overwatch.bus.schemas import Alert, Event, ZoneCount
-from overwatch.output.dashboard.server import create_app, make_server, state_dict
+from overwatch.output.dashboard.server import (
+    create_app,
+    dashboard_summary,
+    make_server,
+    state_dict,
+)
 from overwatch.output.dashboard.view import build_dashboard_state
 from overwatch.output.sqlite_store import SqliteEventStore
 
@@ -36,6 +41,36 @@ def test_state_dict_is_flat_json_serializable_shape():
     assert zones["pen-A"]["count"] == 5
     assert set(payload["recent_alerts"][0]) == {"timestamp", "severity", "title", "message"}
     assert set(payload["recent_events"][0]) == {"timestamp", "kind", "track_id", "zone_id"}
+
+
+# --- dashboard_summary (info-panel rollup, #121) ---------------------------
+
+
+def test_summary_rolls_up_counts_alerts_and_last_activity():
+    state = build_dashboard_state(_store_with_data(), now=100.0, window_s=1000.0)
+    summary = dashboard_summary(state)
+    assert summary["total_count"] == 7  # pen-A 5 + pen-B 2
+    assert summary["zones_reporting"] == 2
+    assert summary["recent_alert_count"] == 1
+    assert summary["critical_alert_count"] == 1
+    assert summary["recent_event_count"] == 1
+    assert summary["last_activity_at"] == 22.0  # newest of alert@22 / event@21
+
+
+def test_summary_is_quiet_when_window_empty():
+    summary = dashboard_summary(build_dashboard_state(SqliteEventStore(":memory:"), now=100.0))
+    assert summary["total_count"] == 0
+    assert summary["zones_reporting"] == 0
+    assert summary["recent_alert_count"] == 0
+    assert summary["critical_alert_count"] == 0
+    assert summary["last_activity_at"] is None
+
+
+def test_api_state_includes_summary():
+    client = TestClient(create_app(_store_with_data(), now=lambda: 100.0, window_seconds=1000.0))
+    summary = client.get("/api/state").json()["summary"]
+    assert summary["total_count"] == 7
+    assert summary["critical_alert_count"] == 1
 
 
 # --- GET /api/state --------------------------------------------------------
