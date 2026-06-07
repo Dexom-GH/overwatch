@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
 
     from overwatch.bus.schemas import Alert, Event, ZoneCount
+    from overwatch.output.dashboard.frame_slot import FrameSlot
     from overwatch.output.dashboard.view import DashboardState
     from overwatch.output.store import EventStore
 
@@ -115,6 +116,48 @@ def state_dict(state: "DashboardState", *, refresh_seconds: int = 5) -> "Dict[st
     }
 
 
+# --- MJPEG live feed (#120, ADR-0008) --------------------------------------
+
+# multipart/x-mixed-replace boundary — the browser renders this stream in an <img>.
+_MJPEG_BOUNDARY = "frame"
+_MJPEG_BOUNDARY_B = _MJPEG_BOUNDARY.encode("ascii")
+
+
+def _multipart_chunk(jpeg: bytes) -> bytes:
+    """One multipart part wrapping a JPEG frame, per ``multipart/x-mixed-replace``."""
+    return (
+        b"--" + _MJPEG_BOUNDARY_B + b"\r\n"
+        b"Content-Type: image/jpeg\r\n"
+        b"Content-Length: " + str(len(jpeg)).encode("ascii") + b"\r\n\r\n"
+        + jpeg + b"\r\n"
+    )
+
+
+def mjpeg_stream(
+    slot: "FrameSlot",
+    *,
+    fps: int = 8,
+    wait_timeout: float = 1.0,
+    sleep: "Callable[[float], None]" = time.sleep,
+):
+    """Yield multipart MJPEG chunks of the *latest* frame in ``slot``, throttled to ``fps``.
+
+    Blocks on ``slot.wait_for`` so it only emits fresh frames (skipping any produced
+    faster than ``fps`` — latest-frame, never a backlog) and burns no CPU while the
+    source is idle. Runs until the consumer (the streaming HTTP response) is closed.
+    """
+    interval = 1.0 / fps if fps > 0 else 0.0
+    last_seq = -1
+    while True:
+        frame, seq = slot.wait_for(last_seq, wait_timeout)
+        if frame is None or seq == last_seq:
+            continue  # source idle / no fresher frame within the timeout — keep waiting
+        last_seq = seq
+        yield _multipart_chunk(frame)
+        if interval:
+            sleep(interval)
+
+
 # --- FastAPI app -----------------------------------------------------------
 
 
@@ -122,6 +165,8 @@ def create_app(
     store: "EventStore",
     *,
     dist_dir: "Optional[str]" = None,
+    frame_slot: "Optional[FrameSlot]" = None,
+    feed_fps: int = 8,
     now: "Callable[[], float]" = time.time,
     window_seconds: float = 3600.0,
     refresh_seconds: int = 5,
@@ -137,6 +182,7 @@ def create_app(
     trailing window is deterministic in tests.
     """
     from fastapi import FastAPI
+    from fastapi.responses import StreamingResponse
     from fastapi.staticfiles import StaticFiles
 
     app = FastAPI(title="Overwatch operator console", docs_url=None, redoc_url=None)
@@ -155,6 +201,18 @@ def create_app(
             event_limit=event_limit,
         )
         return state_dict(state, refresh_seconds=refresh_seconds)
+
+    # Live feed (#120): registered only when a frame slot is wired in (the pipeline
+    # is running and producing burned-in JPEG frames). Absent -> 404, and the SPA
+    # shows its "feed offline" placeholder. multipart/x-mixed-replace renders in an
+    # <img> with no client JS. Read-only: GET only.
+    if frame_slot is not None:
+        @app.get("/api/feed")
+        def api_feed() -> "StreamingResponse":
+            return StreamingResponse(
+                mjpeg_stream(frame_slot, fps=feed_fps),
+                media_type="multipart/x-mixed-replace; boundary=" + _MJPEG_BOUNDARY,
+            )
 
     dist = Path(dist_dir) if dist_dir is not None else _DEFAULT_DIST
     if dist.is_dir():
@@ -219,6 +277,8 @@ def make_server(
     host: str = "127.0.0.1",
     port: int = 8080,
     dist_dir: "Optional[str]" = None,
+    frame_slot: "Optional[FrameSlot]" = None,
+    feed_fps: int = 8,
     now: "Callable[[], float]" = time.time,
     window_seconds: float = 3600.0,
     refresh_seconds: int = 5,
@@ -228,11 +288,14 @@ def make_server(
     """Build (binding the port, but not yet serving) the read-only dashboard server.
 
     Pass ``port=0`` to bind an ephemeral port — the chosen ``(host, port)`` is then
-    on ``server.server_address`` (used by host tests to serve on localhost).
+    on ``server.server_address`` (used by host tests to serve on localhost). Pass a
+    ``frame_slot`` to expose the live MJPEG feed (#120).
     """
     app = create_app(
         store,
         dist_dir=dist_dir,
+        frame_slot=frame_slot,
+        feed_fps=feed_fps,
         now=now,
         window_seconds=window_seconds,
         refresh_seconds=refresh_seconds,
@@ -278,6 +341,7 @@ __all__ = [
     "create_app",
     "dashboard_summary",
     "state_dict",
+    "mjpeg_stream",
     "DashboardServer",
     "make_server",
     "serve",

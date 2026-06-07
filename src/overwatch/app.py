@@ -306,11 +306,13 @@ class DashboardStage(Stage):
         *,
         server: "Optional[Any]" = None,
         store: "Optional[Any]" = None,
+        frame_slot: "Optional[Any]" = None,
         name: str = "dashboard",
     ) -> None:
         self._cfg = cfg
         self._server = server
         self._store = store
+        self._frame_slot = frame_slot  # live-feed slot shared with InferenceStage (#120)
         self._name = name
 
     @property
@@ -338,6 +340,8 @@ class DashboardStage(Stage):
                 host=dash.host,
                 port=dash.port,
                 dist_dir=dash.dist_dir,
+                frame_slot=self._frame_slot,
+                feed_fps=dash.feed_fps,
                 window_seconds=dash.window_seconds,
                 refresh_seconds=dash.refresh_seconds,
                 alert_limit=dash.alert_limit,
@@ -374,12 +378,19 @@ class InferenceStage(Stage):
         source: str,
         tracker_config: "Optional[str]" = None,
         labels: "Optional[List[str]]" = None,
+        frame_slot: "Optional[Any]" = None,
+        feed_fps: int = 8,
     ) -> None:
         self._bus = bus
         self._pgie_config = pgie_config
         self._source = source
         self._tracker_config = tracker_config
         self._labels = labels
+        # Live-feed tap (#120): when set, the pipeline grows a burned-in MJPEG
+        # branch off a tee whose appsink writes encoded frames into this slot for
+        # the dashboard to stream. None -> no feed branch (pure detect+track).
+        self._frame_slot = frame_slot
+        self._feed_fps = feed_fps
 
     @property
     def name(self) -> str:
@@ -397,7 +408,7 @@ class InferenceStage(Stage):
         pipe = DeepStreamPipeline(
             pgie_config=self._pgie_config, tracker_config=self._tracker_config
         )
-        pipe.build(self._source)
+        pipe.build(self._source, frame_slot=self._frame_slot, feed_fps=self._feed_fps)
         q: "queue.Queue" = queue.Queue(maxsize=20000)
         pipe.attach_probe(
             make_tracker_probe(
@@ -497,6 +508,20 @@ def _build_stages(cfg: "AppConfig", bus: "MessageBus") -> "List[Stage]":
     from overwatch.inference.deepstream.pipeline import load_detector_labels
 
     labels = load_detector_labels(cfg.inference.detector_config)
+
+    # Live-feed slot (#120, ADR-0008): the in-process hand-off from the pipeline's
+    # burned-in MJPEG tap to the dashboard's /api/feed — frames stay off the bus.
+    # Created only when the dashboard (durable store + enabled) and its feed are on,
+    # and shared by the InferenceStage (producer) and DashboardStage (consumer).
+    dash_cfg = cfg.output.dashboard
+    store_cfg = cfg.output.store
+    dashboard_on = dash_cfg.enabled and store_cfg.backend == "sqlite" and bool(store_cfg.path)
+    frame_slot = None
+    if dashboard_on and dash_cfg.feed_enabled:
+        from overwatch.output.dashboard.frame_slot import FrameSlot
+
+        frame_slot = FrameSlot()
+
     stages.append(
         InferenceStage(
             bus,
@@ -504,6 +529,8 @@ def _build_stages(cfg: "AppConfig", bus: "MessageBus") -> "List[Stage]":
             source=infer_source,
             tracker_config=cfg.inference.tracker_config,
             labels=labels,
+            frame_slot=frame_slot,
+            feed_fps=dash_cfg.feed_fps,
         )
     )
     stages.append(FusionStage(bus, cfg))
@@ -512,7 +539,6 @@ def _build_stages(cfg: "AppConfig", bus: "MessageBus") -> "List[Stage]":
     # Durable tier (sqlite backend): the StoreStage writes records and the
     # RetentionStage bounds them during 24/7 operation. Both open the store lazily
     # from the configured path (no filesystem side effect at construction).
-    store_cfg = cfg.output.store
     if store_cfg.backend == "sqlite" and store_cfg.path:
         from overwatch.output.retention import RetentionPolicy
 
@@ -524,8 +550,8 @@ def _build_stages(cfg: "AppConfig", bus: "MessageBus") -> "List[Stage]":
                 store_path=store_cfg.path,
             )
         )
-        if cfg.output.dashboard.enabled:
-            stages.append(DashboardStage(cfg))
+        if dash_cfg.enabled:
+            stages.append(DashboardStage(cfg, frame_slot=frame_slot))
     return stages
 
 

@@ -135,5 +135,24 @@ All notable changes to Overwatch are recorded here. Format follows
   `v2-fwd`); bus path = **in-process latest-frame slot, no new bus topic** (frames stay
   off the ZeroMQ tier and the SQLite store — ADR-0001 note added). The feed taps a
   leaky `tee` after `nvtracker`, never the inference branch (the constraint for #120).
+- Live operator camera feed (#120, ADR-0008). The console shows a **single live feed
+  with burned-in detection overlays** beside the panels. New `output/dashboard/frame_slot.py`
+  is the in-process latest-frame hand-off (frames stay off the bus); the DeepStream
+  pipeline grows a **leaky `tee` after `nvtracker` → `nvvideoconvert` → `nvdsosd` →
+  `nvjpegenc` → `appsink`** branch (`DeepStreamPipeline.build(frame_slot=...)`) that
+  writes JPEG frames to the slot, and the FastAPI backend serves them at **`/api/feed`**
+  as **throttled MJPEG** (`multipart/x-mixed-replace`, rendered in an `<img>` — no client
+  JS). `app.py` creates one `FrameSlot` shared by the `InferenceStage` (producer) and
+  `DashboardStage` (consumer); `output.dashboard.feed_enabled`/`feed_fps` gate it. The
+  SPA adds a live-feed panel with an offline placeholder + retry. The tap never
+  backpressures inference (leaky queue; pull-mode appsink). Host-tested (slot, MJPEG
+  framing, route wiring); **on-device** verified — a real burned-in
+  `nvdsosd`→`nvjpegenc` detection frame was pulled from the slot on the Jetson, and
+  the chain runs within the #119 fps budget. **Default OFF (`feed_enabled=False`):**
+  a known DeepStream **NULL-teardown hang** when stopping mid-stream (EOS drains, but
+  the NVMM buffer-pool teardown deadlocks; pull-mode + EOS-drain narrowed but didn't
+  resolve it) means the supervised app would not shut down cleanly with the feed on —
+  so it ships opt-in (enable for demos) with the graceful-teardown fix tracked as a
+  follow-up.
 
 [Unreleased]: https://github.com/Dexom-GH/overwatch/commits/master

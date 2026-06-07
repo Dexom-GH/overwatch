@@ -61,10 +61,11 @@ export default function App() {
       <header>
         <h1>Overwatch — operator console</h1>
         <p className="meta">
-          Live monitoring (#121). Camera feed + detection overlays arrive in
-          #119 / #120 / #122.
+          Live monitoring — camera feed with detection overlays, counts and alerts.
         </p>
       </header>
+
+      <LiveFeed />
 
       {error && <p className="banner error">data unavailable — {error}</p>}
       {!state && !error && <p className="banner">connecting…</p>}
@@ -102,6 +103,43 @@ export default function App() {
         </>
       )}
     </main>
+  )
+}
+
+// The live MJPEG feed (#120): a burned-in detection feed served at /api/feed
+// (multipart/x-mixed-replace) renders natively in an <img>. When the pipeline
+// isn't running the endpoint is absent (404) — show an "offline" placeholder and
+// retry periodically so the feed reappears once the pipeline comes up.
+function LiveFeed() {
+  const [attempt, setAttempt] = useState(0)
+  const [offline, setOffline] = useState(false)
+
+  useEffect(() => {
+    if (!offline) return
+    const t = window.setTimeout(() => {
+      setOffline(false)
+      setAttempt((a) => a + 1)
+    }, 10000)
+    return () => window.clearTimeout(t)
+  }, [offline])
+
+  return (
+    <section className="feed">
+      {offline ? (
+        <div className="feed-offline">
+          <span className="feed-offline-title">Live feed offline</span>
+          <span className="feed-offline-sub">pipeline not running · retrying…</span>
+        </div>
+      ) : (
+        <img
+          key={attempt}
+          className="feed-img"
+          src={`/api/feed?a=${attempt}`}
+          alt="live camera feed with detection overlays"
+          onError={() => setOffline(true)}
+        />
+      )}
+    </section>
   )
 }
 
