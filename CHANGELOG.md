@@ -164,5 +164,17 @@ All notable changes to Overwatch are recorded here. Format follows
   on the Jetson: stopping mid-stream with frames flowing now tears down cleanly
   (`NULL complete`) across early/mid/late-stream stops, frames still reach the slot.
   `output.dashboard.feed_enabled` is **`True`** again.
+- Dashboard feed sources + UI toggle (#132). The console switches between multiple
+  live feeds at `/api/feed/{source}`: **detection** (#120 DeepStream burned-in),
+  **raw** (the RTSP camera decoded directly via `cv2` — host + device, **no
+  pipeline**), and **mock** (a synthetic test pattern for offline dev). New
+  `output/dashboard/feeds.py` (`RtspFeeder` + `MockFeeder` — injectable cv2 for host
+  tests, clean threaded stop) + `make_aux_feeds`; `/api/feeds` lists available
+  sources; the SPA gained a **feed toggle** (remembers the selection). Config:
+  `feed_rtsp_enabled`/`feed_rtsp_url` (defaults to the first rtsp capture source),
+  `feed_mock_enabled`. Standalone `server.serve(cfg)` also builds the raw/mock
+  feeders, so the console shows a real camera on the host with no DeepStream.
+  **Verified on the Jetson:** `RtspFeeder` decodes the live camera (real 1080p
+  frames) and stops cleanly; the SPA toggle switches sources (host).
 
 [Unreleased]: https://github.com/Dexom-GH/overwatch/commits/master

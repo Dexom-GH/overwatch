@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { fetchState, type DashboardState } from './api'
+import { fetchFeeds, fetchState, type DashboardState } from './api'
 import { humanizeEventKind, mergeActivity, relativeTime, type ActivityItem } from './feed'
 
 const DEFAULT_POLL_SECONDS = 5
@@ -106,13 +106,39 @@ export default function App() {
   )
 }
 
-// The live MJPEG feed (#120): a burned-in detection feed served at /api/feed
-// (multipart/x-mixed-replace) renders natively in an <img>. When the pipeline
-// isn't running the endpoint is absent (404) — show an "offline" placeholder and
-// retry periodically so the feed reappears once the pipeline comes up.
+const FEED_LABELS: Record<string, string> = {
+  detection: 'Detection',
+  raw: 'Raw camera',
+  mock: 'Mock',
+}
+
+// The live MJPEG feeds (#120 detection / #132 raw + mock): each is served at
+// /api/feed/{source} (multipart/x-mixed-replace) and renders natively in an <img>.
+// A toggle switches sources (only those /api/feeds reports as available). A source
+// that isn't running yields 404 -> "offline" placeholder + periodic retry. The
+// chosen source is remembered across reloads.
 function LiveFeed() {
+  const [feeds, setFeeds] = useState<string[]>([])
+  const [selected, setSelected] = useState<string | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [offline, setOffline] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    fetchFeeds()
+      .then((f) => {
+        if (cancelled) return
+        setFeeds(f.feeds)
+        const saved = window.localStorage.getItem('ow.feed')
+        setSelected(saved && f.feeds.includes(saved) ? saved : f.default)
+      })
+      .catch(() => {
+        if (!cancelled) setFeeds([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     if (!offline) return
@@ -123,19 +149,46 @@ function LiveFeed() {
     return () => window.clearTimeout(t)
   }, [offline])
 
+  const pick = (src: string) => {
+    setSelected(src)
+    window.localStorage.setItem('ow.feed', src)
+    setOffline(false)
+    setAttempt((a) => a + 1)
+  }
+
+  const label = selected ? FEED_LABELS[selected] ?? selected : ''
+
   return (
     <section className="feed">
-      {offline ? (
+      {feeds.length > 1 && (
+        <div className="feed-toggle">
+          {feeds.map((src) => (
+            <button
+              key={src}
+              className={src === selected ? 'active' : ''}
+              onClick={() => pick(src)}
+            >
+              {FEED_LABELS[src] ?? src}
+            </button>
+          ))}
+        </div>
+      )}
+      {!selected ? (
         <div className="feed-offline">
-          <span className="feed-offline-title">Live feed offline</span>
-          <span className="feed-offline-sub">pipeline not running · retrying…</span>
+          <span className="feed-offline-title">No feed available</span>
+          <span className="feed-offline-sub">enable a feed source in config</span>
+        </div>
+      ) : offline ? (
+        <div className="feed-offline">
+          <span className="feed-offline-title">{label} feed offline</span>
+          <span className="feed-offline-sub">source not running · retrying…</span>
         </div>
       ) : (
         <img
-          key={attempt}
+          key={`${selected}-${attempt}`}
           className="feed-img"
-          src={`/api/feed?a=${attempt}`}
-          alt="live camera feed with detection overlays"
+          src={`/api/feed/${selected}?a=${attempt}`}
+          alt={`live ${label} feed`}
           onError={() => setOffline(true)}
         />
       )}

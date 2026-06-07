@@ -29,7 +29,7 @@ from __future__ import annotations
 import logging
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from overwatch.output.dashboard.view import build_dashboard_state
 
@@ -161,11 +161,15 @@ def mjpeg_stream(
 # --- FastAPI app -----------------------------------------------------------
 
 
+# Preferred display order of feed sources (#132); others sort after, alphabetically.
+_FEED_ORDER = ("detection", "raw", "mock")
+
+
 def create_app(
     store: "EventStore",
     *,
     dist_dir: "Optional[str]" = None,
-    frame_slot: "Optional[FrameSlot]" = None,
+    feeds: "Optional[Dict[str, FrameSlot]]" = None,
     feed_fps: int = 8,
     now: "Callable[[], float]" = time.time,
     window_seconds: float = 3600.0,
@@ -181,11 +185,16 @@ def create_app(
     it is absent the backend still serves the JSON API. ``now`` is injectable so the
     trailing window is deterministic in tests.
     """
-    from fastapi import FastAPI
+    from fastapi import FastAPI, HTTPException
     from fastapi.responses import StreamingResponse
     from fastapi.staticfiles import StaticFiles
 
     app = FastAPI(title="Overwatch operator console", docs_url=None, redoc_url=None)
+    feed_slots: "Dict[str, FrameSlot]" = dict(feeds or {})
+
+    def _feed_names() -> "List[str]":
+        ordered = [n for n in _FEED_ORDER if n in feed_slots]
+        return ordered + sorted(n for n in feed_slots if n not in _FEED_ORDER)
 
     @app.get("/api/health")
     def api_health() -> "Dict[str, str]":
@@ -202,17 +211,24 @@ def create_app(
         )
         return state_dict(state, refresh_seconds=refresh_seconds)
 
-    # Live feed (#120): registered only when a frame slot is wired in (the pipeline
-    # is running and producing burned-in JPEG frames). Absent -> 404, and the SPA
-    # shows its "feed offline" placeholder. multipart/x-mixed-replace renders in an
-    # <img> with no client JS. Read-only: GET only.
-    if frame_slot is not None:
-        @app.get("/api/feed")
-        def api_feed() -> "StreamingResponse":
-            return StreamingResponse(
-                mjpeg_stream(frame_slot, fps=feed_fps),
-                media_type="multipart/x-mixed-replace; boundary=" + _MJPEG_BOUNDARY,
-            )
+    # Live feeds (#120 detection / #132 raw + mock). /api/feeds lists the available
+    # sources (so the SPA builds its toggle); /api/feed/{source} streams one as
+    # MJPEG (multipart/x-mixed-replace, rendered in an <img> with no client JS).
+    # Read-only: GET only; an unknown/absent source -> 404 (SPA shows "offline").
+    @app.get("/api/feeds")
+    def api_feeds() -> "Dict[str, Any]":
+        names = _feed_names()
+        return {"feeds": names, "default": names[0] if names else None}
+
+    @app.get("/api/feed/{source}")
+    def api_feed(source: str) -> "StreamingResponse":
+        slot = feed_slots.get(source)
+        if slot is None:
+            raise HTTPException(status_code=404, detail="unknown feed source")
+        return StreamingResponse(
+            mjpeg_stream(slot, fps=feed_fps),
+            media_type="multipart/x-mixed-replace; boundary=" + _MJPEG_BOUNDARY,
+        )
 
     dist = Path(dist_dir) if dist_dir is not None else _DEFAULT_DIST
     if dist.is_dir():
@@ -277,7 +293,7 @@ def make_server(
     host: str = "127.0.0.1",
     port: int = 8080,
     dist_dir: "Optional[str]" = None,
-    frame_slot: "Optional[FrameSlot]" = None,
+    feeds: "Optional[Dict[str, FrameSlot]]" = None,
     feed_fps: int = 8,
     now: "Callable[[], float]" = time.time,
     window_seconds: float = 3600.0,
@@ -288,13 +304,13 @@ def make_server(
     """Build (binding the port, but not yet serving) the read-only dashboard server.
 
     Pass ``port=0`` to bind an ephemeral port — the chosen ``(host, port)`` is then
-    on ``server.server_address`` (used by host tests to serve on localhost). Pass a
-    ``frame_slot`` to expose the live MJPEG feed (#120).
+    on ``server.server_address`` (used by host tests to serve on localhost). Pass
+    ``feeds`` (name -> FrameSlot) to expose the live MJPEG feeds (#120/#132).
     """
     app = create_app(
         store,
         dist_dir=dist_dir,
-        frame_slot=frame_slot,
+        feeds=feeds,
         feed_fps=feed_fps,
         now=now,
         window_seconds=window_seconds,
@@ -309,9 +325,12 @@ def serve(cfg: "Any") -> None:  # pragma: no cover - runtime entry (blocking)
     """Open the configured EventStore and serve the dashboard until interrupted.
 
     Standalone runtime entry. Reads ``output.store.path`` for the durable store and
-    ``output.dashboard.*`` for the surface knobs (host/port/window/dist). Blocking;
-    stop with Ctrl-C / SIGTERM.
+    ``output.dashboard.*`` for the surface knobs. Builds the **non-pipeline** feeds
+    (raw RTSP / mock, #132) so the console can show a live image with no DeepStream —
+    handy for host/dev testing; the detection feed needs the supervised pipeline.
+    Blocking; stop with Ctrl-C / SIGTERM.
     """
+    from overwatch.output.dashboard.feeds import make_aux_feeds
     from overwatch.output.sqlite_store import SqliteEventStore
 
     out = cfg.output
@@ -319,20 +338,40 @@ def serve(cfg: "Any") -> None:  # pragma: no cover - runtime entry (blocking)
     if out.store.backend != "sqlite" or not out.store.path:
         raise RuntimeError("dashboard requires a sqlite EventStore path (output.store)")
     store = SqliteEventStore(out.store.path)
+
+    rtsp_url, rtsp_cred = dash.feed_rtsp_url, None
+    if dash.feed_rtsp_enabled and not rtsp_url:
+        for s in cfg.capture.sources:
+            if getattr(s, "type", None) == "rtsp":
+                rtsp_url, rtsp_cred = s.url, getattr(s, "cred", None)
+                break
+    feeds, feeders = make_aux_feeds(
+        rtsp_enabled=dash.feed_rtsp_enabled,
+        rtsp_url=rtsp_url,
+        rtsp_cred=rtsp_cred,
+        mock_enabled=dash.feed_mock_enabled,
+        fps=dash.feed_fps,
+    )
     server = make_server(
         store,
         host=dash.host,
         port=dash.port,
         dist_dir=dash.dist_dir,
+        feeds=feeds,
+        feed_fps=dash.feed_fps,
         window_seconds=dash.window_seconds,
         refresh_seconds=dash.refresh_seconds,
         alert_limit=dash.alert_limit,
         event_limit=dash.event_limit,
     )
+    for feeder in feeders:
+        feeder.start()
     _LOG.info("operator console serving on http://%s:%s", dash.host, dash.port)
     try:
         server.serve_forever()
     finally:
+        for feeder in feeders:
+            feeder.stop()
         server.server_close()
         store.close()
 

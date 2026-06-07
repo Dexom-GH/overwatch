@@ -277,12 +277,17 @@ class DashboardConfig(_Strict):
     alert_limit: int = Field(default=10, gt=0)
     event_limit: int = Field(default=10, gt=0)
     dist_dir: Optional[str] = None  # serve prebuilt SPA from here (None -> web/dist)
-    # Live operator feed (#120, ADR-0008): burned-in MJPEG tap off the DeepStream
-    # pipeline, served at /api/feed. feed_fps throttles the served stream (the tap
-    # itself drops to latest; monitoring needs only a few fps). On by default —
-    # mid-stream teardown is clean (#129: fakesink + probe, not appsink).
-    feed_enabled: bool = True
+    # Live operator feeds (served at /api/feed/{source}; the SPA toggles between
+    # them, #132). feed_fps throttles the served streams (a few fps is plenty).
+    #   detection — burned-in DeepStream tap (#120/#129), Jetson-only (pipeline).
+    #   raw       — the RTSP camera decoded directly via cv2; host + device, no
+    #               pipeline. feed_rtsp_url defaults to the first rtsp capture source.
+    #   mock      — a synthetic test pattern for offline dev (no camera, no pipeline).
+    feed_enabled: bool = True  # the detection feed
     feed_fps: int = Field(default=8, gt=0, le=30)
+    feed_rtsp_enabled: bool = False
+    feed_rtsp_url: Optional[str] = None  # None -> first rtsp capture source's url
+    feed_mock_enabled: bool = False
 
 
 class OutputConfig(_Strict):

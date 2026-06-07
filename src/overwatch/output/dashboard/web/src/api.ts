@@ -47,3 +47,16 @@ export async function fetchState(signal?: AbortSignal): Promise<DashboardState> 
   }
   return (await resp.json()) as DashboardState
 }
+
+export interface Feeds {
+  feeds: string[]
+  default: string | null
+}
+
+export async function fetchFeeds(signal?: AbortSignal): Promise<Feeds> {
+  const resp = await fetch('/api/feeds', { signal })
+  if (!resp.ok) {
+    throw new Error(`/api/feeds returned ${resp.status}`)
+  }
+  return (await resp.json()) as Feeds
+}
