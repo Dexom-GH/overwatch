@@ -261,6 +261,24 @@ class TestFusionStage:
         stage.run(stop)  # flush -> crossing event published
         assert topics.FUSION_EVENT in [t for t, _ in bus.published]
 
+    def test_records_use_wall_clock_timestamps(self):
+        # Fusion records must be stamped with WALL-CLOCK time (time.time), so the
+        # operator dashboard's trailing-window query and age-based retention include
+        # them. The fanout defaults to time.monotonic (uptime seconds ~1e4-1e5),
+        # which would fall outside the dashboard window and break age pruning (the
+        # #84 dashboard bug). Regression guard.
+        bus = _FakeBus()
+        stage = FusionStage(bus, _full_cfg())
+        bus.deliver(topics.INFER_TRACK, _track(1, 10, 5, frame_id=0))
+        bus.deliver(topics.INFER_TRACK, _track(1, 10, 15, frame_id=1))
+        stop = threading.Event()
+        stop.set()
+        stage.run(stop)
+        events = [m for t, m in bus.published if t == topics.FUSION_EVENT]
+        assert events, "expected a fence-crossing event"
+        assert events[0].timestamp > 1_000_000_000, "timestamp is not wall-clock epoch"
+        assert abs(events[0].timestamp - time.time()) < 60
+
     def test_end_to_end_fusion_to_store_to_dashboard(self):
         # #111 payoff: tracks -> fusion publishes raw records -> StoreStage persists
         # -> the dashboard's zone-count + event panels populate. Synchronous bus,
@@ -275,9 +293,10 @@ class TestFusionStage:
         bus.publish(topics.INFER_TRACK, _track(1, 10, 5, frame_id=0))
         bus.publish(topics.INFER_TRACK, _track(1, 10, 15, frame_id=1))
         bus.publish(topics.INFER_TRACK, _track(1, 10, 15, frame_id=2))  # flush frame 1
-        counts = latest_zone_counts(store, end=1e9)
+        # end bound must clear wall-clock now (records carry time.time timestamps).
+        counts = latest_zone_counts(store, end=2e9)
         assert counts and counts[0].zone_id == "pen" and counts[0].count >= 1
-        events = list(store.query("event", 0.0, 1e9))
+        events = list(store.query("event", 0.0, 2e9))
         assert any(e.kind == "fence_crossing" for e in events)
 
 
