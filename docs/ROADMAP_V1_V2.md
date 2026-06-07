@@ -21,6 +21,11 @@ forward a documented move rather than a silent one.
   streams) — forward-ported 2026-06-02 (`v2-fwd`). Depth features (count de-dup,
   body-size ID, lameness) are **ZED-only**; mono feeds get 2D counting,
   immobility, fence-crossing. See ADR-0006.
+- **`person` detection alongside animals** — the V1 detector detects **people AND
+  animals** (sheep/goat/poultry + person). Forward-ported 2026-06-07 (`v2-fwd`):
+  the `person` detection *class* lands in V1; human *semantics* (presence alert,
+  worker-vs-intruder, occupancy) stay V2. Conditional on the v11 detector winning
+  the mAP+fps gate (ADR-0009 / #147). See the forward-port note below.
 
 ## V1 — explicitly NOT in scope (deferred to V2)
 
@@ -31,8 +36,26 @@ forward a documented move rather than a silent one.
 | **Plant & environmental monitoring** | The broader farm-overwatch scope; V1 is animals only. |
 | **Lameness scoring (depth + pose)** | Deferred to V2 (2026-06-02): heaviest health signal, placeholder thresholds, needs pose-model provenance. V1 health = immobility + fence-crossing. Tracked in issue #22. |
 | **Tier-3 detector (rabbit, guinea_pig)** | Deferred to V2 (2026-06-04, spike #35): no farm-relevant public detection data (guinea pig has none even for bootstrap), ~1 focused person-week to capture+label+train, and the P0 demo spine runs on Tier 1. V1 keeps only **low-cost data capture now** (record pen footage) so V2 labeling isn't gated on re-capture. V1 farm detector (#77) narrows to **3-class** (sheep/goat/poultry). See `docs/research/2026-06-04-tier3-detection-dataset-feasibility.md`. |
+| **Human / intrusion semantics** | Deferred to V2 (2026-06-07): the `person` detection *class* is forward-ported into V1 (see the note below), but **interpreting** people — person-presence alert, worker-vs-intruder distinction, occupancy/dwell — stays V2. V1 only *detects and tracks* people; it does not reason about them. Tracked in **issue #152**. |
 
 ### Forward-port notes
+
+- **2026-06-07 — `person` detection forward-ported V2→V1 (`v2-fwd`, P1):** the V1
+  detector is expanded to detect **people AND animals**. The headline V1 outcome
+  becomes "detect people and animals." **Only the `person` detection *class* is
+  pulled forward** — human *semantics* (presence alert, worker-vs-intruder,
+  occupancy) remain V2 (new "NOT in scope" row above; tracked in **#152**). The
+  `person` class lands as the **highest class-id** in the renamed
+  `configs/classes.yaml` (was `animals.yaml`): sheep=0, goat=1, poultry=2,
+  **person=3**, with V2 tier-3 ids shifting after it — the contract change is
+  **#149 (B2)**, marked `# V2→V1:` on the contract surfaces. This forward-port is
+  **conditional on the YOLOv11 detector winning the mAP+fps gate (ADR-0009 /
+  #147)**; if v11 loses, `person` and v11 move to V2 with it. Groomed slices:
+  dataset feasibility **#146 (B0)**, the gate spike **#147 (B1)**, ADR-0009 stub +
+  decision **#148**, contract change **#149 (B2)**, people+animals e2e demo **#150
+  (B3, first demoable milestone)**, tracking-quality spike **#151 (D1)**. Like the
+  multi-camera move, this is a documented V2→V1 boundary change, not a silent one;
+  recorded in **ADR-0009**.
 
 - **2026-06-07 — Client-canvas overlays DEFERRED V1→V2 (spike #119):** the
   dashboard live-feed perf spike (#119) resolved ADR-0008's overlay-draw choice to
@@ -137,8 +160,16 @@ forward a documented move rather than a silent one.
   `torch 2.1` produces NaN on CPU for v11's C2PSA attention — the export **must trace on
   GPU** (fix in `scripts/dev/spike_yolo11_export.py --device cuda`); engine build ~20 min.
   See [docs/research/2026-06-07-yolo11-trt85-viability.md](research/2026-06-07-yolo11-trt85-viability.md)
-  + the spec/plan under `docs/superpowers/`. B/C/D are **not yet groomed** — pending PO
-  decomposition into `status:ready` issues before implementation.
+  + the spec/plan under `docs/superpowers/`. **GROOMED 2026-06-07 (PO-approved):**
+  `person` is forward-ported into V1 (see forward-port note above); human semantics
+  stay V2 (#152). Issues created — **#146 (B0)** farm+person dataset feasibility;
+  **#147 (B1)** v11-vs-v8 mAP+fps gate (resolves **ADR-0009**); **#148** ADR-0009
+  decision (stub `docs/DECISIONS/0009-detector-model-yolov11.md`, Proposed); **#149
+  (B2)** class-set contract change (`animals.yaml`→`classes.yaml` + `person`);
+  **#150 (B3)** people+animals e2e demo (first demoable milestone); **#151 (D1)**
+  nvtracker/track-stability spike. **Gate rule (ADR-0009):** adopt v11 iff per-class
+  mAP ≥ v8's AND on-device fps ≥ camera rate (real-time, hard gate); else keep v8 and
+  v11 → V2.
 - **2026-06-04 — ZED/depth path DEFERRED; RTSP/mono path is the first on-device
   demo (PO-approved):** the ZED 2i is not yet cabled to a USB-3 port (#54), so the
   depth differentiator and its dependents — first ZED-depth e2e demo (#16),
