@@ -10,10 +10,13 @@ host-runnable: FastAPI ``TestClient`` over in-memory SQLite, no real sockets.
 from fastapi.testclient import TestClient
 
 from overwatch.bus.schemas import Alert, Event, ZoneCount
+from overwatch.output.dashboard.frame_slot import FrameSlot
 from overwatch.output.dashboard.server import (
+    _multipart_chunk,
     create_app,
     dashboard_summary,
     make_server,
+    mjpeg_stream,
     state_dict,
 )
 from overwatch.output.dashboard.view import build_dashboard_state
@@ -139,6 +142,44 @@ def test_api_works_and_root_404s_when_no_dist_built(tmp_path):
     client = TestClient(app)
     assert client.get("/").status_code == 404
     assert client.get("/api/health").json() == {"status": "ok"}
+
+
+# --- MJPEG live feed (#120) ------------------------------------------------
+
+
+def test_multipart_chunk_framing():
+    chunk = _multipart_chunk(b"\xff\xd8JPEG\xff\xd9")
+    assert chunk.startswith(b"--frame\r\nContent-Type: image/jpeg\r\n")
+    assert b"Content-Length: 8\r\n\r\n" in chunk
+    assert chunk.endswith(b"\xff\xd8JPEG\xff\xd9\r\n")
+
+
+def test_mjpeg_stream_emits_latest_frames_in_order():
+    slot = FrameSlot()
+    gen = mjpeg_stream(slot, fps=1000, wait_timeout=0.05, sleep=lambda _s: None)
+    slot.put(b"\xff\xd8one\xff\xd9")
+    first = next(gen)
+    assert first.startswith(b"--frame") and b"one" in first
+    slot.put(b"\xff\xd8two\xff\xd9")
+    second = next(gen)
+    assert b"two" in second
+    gen.close()
+
+
+def test_feed_route_registered_only_when_slot_present():
+    # The /api/feed route exists iff a frame slot is wired in (pipeline running).
+    # We assert on the route table rather than issuing a GET — the live response is
+    # an infinite multipart stream (the byte framing is covered by the mjpeg_stream
+    # test above; the live HTTP path is verified on-device with `curl --max-time`).
+    with_slot = {r.path for r in create_app(_store_with_data(), frame_slot=FrameSlot()).routes}
+    without = {r.path for r in create_app(_store_with_data()).routes}
+    assert "/api/feed" in with_slot
+    assert "/api/feed" not in without
+
+
+def test_feed_absent_returns_404_when_no_slot():
+    client = TestClient(create_app(_store_with_data(), now=lambda: 100.0))
+    assert client.get("/api/feed").status_code == 404
 
 
 # --- make_server: binds a real port, http.server-compatible address --------

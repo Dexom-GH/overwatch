@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import configparser
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -174,6 +175,13 @@ class DeepStreamPipeline:  # pragma: no cover - target-only (GStreamer/pyds)
         self._pipeline: Optional[Any] = None
         self._tracker: Optional[Any] = None
         self._loop: Optional[Any] = None
+        # Live-feed (#120): pull-mode appsink + a dedicated pump thread (see
+        # _build_feed_branch). Pull mode — not signal callbacks — so tearing the
+        # pipeline down while frames flow can't deadlock on the GIL.
+        self._appsink: Optional[Any] = None
+        self._frame_slot: Optional[Any] = None
+        self._feed_stop: Optional[Any] = None
+        self._feed_thread: Optional[Any] = None
 
     def _mk(self, factory: str, name: str) -> "Any":
         assert self._pipeline is not None
@@ -200,13 +208,29 @@ class DeepStreamPipeline:  # pragma: no cover - target-only (GStreamer/pyds)
             elif key in _TRACKER_STR_PROPS:
                 tracker.set_property(key, raw)
 
-    def build(self, source: str, *, width: int = 1280, height: int = 720) -> None:
+    def build(
+        self,
+        source: str,
+        *,
+        width: int = 1280,
+        height: int = 720,
+        frame_slot: "Optional[Any]" = None,
+        feed_fps: int = 8,
+    ) -> None:
         """Construct + link the pipeline for ``source`` (H.264 file or live RTSP URL).
 
         A file source keeps the #15 ``filesrc -> h264parse -> nvv4l2decoder`` chain;
         an ``rtsp://`` URL (#84) is ingested via ``nvurisrcbin`` whose dynamic src pad
         is linked to ``nvstreammux`` on ``pad-added``. The source sub-graph is chosen
         by the host-tested :func:`plan_source`.
+
+        When ``frame_slot`` is given, the pipeline grows a **dashboard live-feed tap**
+        (#120, ADR-0008): a ``tee`` after ``nvtracker`` feeds the inference drain
+        *and* a burned-in MJPEG branch (``nvdsosd`` -> ``nvjpegenc`` -> ``appsink``)
+        whose encoded frames are written to ``frame_slot`` for the dashboard to
+        stream. The tap is a separate branch — it never backpressures the inference
+        path (its queue is leaky). ``feed_fps`` is accepted for symmetry but the feed
+        is throttled at the HTTP layer (the slot keeps only the latest frame).
         """
         Gst.init(None)
         self._pipeline = Gst.Pipeline()
@@ -228,8 +252,6 @@ class DeepStreamPipeline:  # pragma: no cover - target-only (GStreamer/pyds)
         pgie.set_property("config-file-path", self._pgie_config)
         tracker = self._mk("nvtracker", "tracker")
         self._configure_tracker(tracker)
-        sink = self._mk("fakesink", "sink")
-        sink.set_property("sync", 0)
 
         # link the source sub-chain in order (e.g. filesrc -> h264parse -> nvv4l2decoder)
         prev: "Optional[Any]" = None
@@ -251,8 +273,93 @@ class DeepStreamPipeline:  # pragma: no cover - target-only (GStreamer/pyds)
 
         mux.link(pgie)
         pgie.link(tracker)
-        tracker.link(sink)
         self._tracker = tracker
+
+        if frame_slot is None:
+            sink = self._mk("fakesink", "sink")
+            sink.set_property("sync", 0)
+            tracker.link(sink)
+        else:
+            self._build_feed_branch(tracker, frame_slot)
+
+    def _build_feed_branch(self, tracker: "Any", frame_slot: "Any") -> None:
+        """Tap a burned-in MJPEG feed off ``nvtracker`` into ``frame_slot`` (#120).
+
+        ``nvtracker -> tee -> { queue -> fakesink (inference drain) ,
+        queue(leaky) -> nvvideoconvert(RGBA) -> nvdsosd -> nvvideoconvert(NV12) ->
+        nvjpegenc -> appsink }``. The appsink's ``new-sample`` callback copies the
+        JPEG bytes into the slot. The feed queue is **leaky** so a slow encode drops
+        frames instead of stalling inference (proven affordable in the #119 spike).
+        """
+        tee = self._mk("tee", "feedtee")
+        tracker.link(tee)
+
+        # inference drain branch — keeps the detect+track path flowing
+        q_infer = self._mk("queue", "q_infer")
+        s_infer = self._mk("fakesink", "s_infer")
+        s_infer.set_property("sync", 0)
+        tee.get_request_pad("src_%u").link(q_infer.get_static_pad("sink"))
+        q_infer.link(s_infer)
+
+        # feed branch — burned-in overlays then JPEG, never backpressures inference
+        q_feed = self._mk("queue", "q_feed")
+        q_feed.set_property("leaky", 2)  # drop oldest under pressure (downstream-leaky)
+        q_feed.set_property("max-size-buffers", 3)
+        c1 = self._mk("nvvideoconvert", "feed_c1")
+        cf1 = self._mk("capsfilter", "feed_cf1")
+        cf1.set_property("caps", Gst.Caps.from_string("video/x-raw(memory:NVMM), format=RGBA"))
+        osd = self._mk("nvdsosd", "feed_osd")
+        c2 = self._mk("nvvideoconvert", "feed_c2")
+        cf2 = self._mk("capsfilter", "feed_cf2")
+        cf2.set_property("caps", Gst.Caps.from_string("video/x-raw(memory:NVMM), format=NV12"))
+        enc = self._mk("nvjpegenc", "feed_enc")
+        appsink = self._mk("appsink", "feed_sink")
+        # PULL mode (no "new-sample" signal): a separate pump thread pulls samples,
+        # so the streaming thread never runs Python and a NULL-state teardown while
+        # frames flow can't deadlock on the GIL. drop+max-buffers=1 = always latest.
+        appsink.set_property("emit-signals", False)
+        appsink.set_property("max-buffers", 1)
+        appsink.set_property("drop", True)
+        appsink.set_property("sync", 0)
+
+        tee.get_request_pad("src_%u").link(q_feed.get_static_pad("sink"))
+        q_feed.link(c1)
+        c1.link(cf1)
+        cf1.link(osd)
+        osd.link(c2)
+        c2.link(cf2)
+        cf2.link(enc)
+        enc.link(appsink)
+
+        self._appsink = appsink
+        self._frame_slot = frame_slot
+        self._feed_stop = threading.Event()
+        self._feed_thread = threading.Thread(
+            target=self._feed_pump, name="dashboard-feed-pump", daemon=True
+        )
+
+    def _feed_pump(self) -> None:  # pragma: no cover - target-only
+        """Pull encoded JPEG frames from the appsink into the slot until stopped.
+
+        Runs on its own thread (started in :meth:`run`, stopped in :meth:`stop`).
+        ``try-pull-sample`` blocks up to the timeout and returns ``None`` on timeout
+        or once the appsink goes to NULL — so the stop flag is honoured promptly and
+        teardown never blocks on an in-flight Python callback.
+        """
+        appsink = self._appsink
+        slot = self._frame_slot
+        assert appsink is not None and slot is not None and self._feed_stop is not None
+        while not self._feed_stop.is_set():
+            sample = appsink.emit("try-pull-sample", 200 * Gst.MSECOND)
+            if sample is None:
+                continue
+            buf = sample.get_buffer()
+            ok, minfo = buf.map(Gst.MapFlags.READ)
+            if ok:
+                try:
+                    slot.put(bytes(minfo.data))
+                finally:
+                    buf.unmap(minfo)
 
     def attach_probe(self, probe: "Callable[[Any, Any, Any], Any]") -> None:
         """Attach ``probe`` to the nvtracker src pad (where Track metadata is final)."""
@@ -269,14 +376,31 @@ class DeepStreamPipeline:  # pragma: no cover - target-only (GStreamer/pyds)
         bus.add_signal_watch()
         bus.connect("message", self._on_bus_message)
         self._pipeline.set_state(Gst.State.PLAYING)
+        if self._feed_thread is not None:
+            self._feed_thread.start()  # pull JPEG frames into the slot (#120)
         try:
             self._loop.run()
         finally:
             self.stop()
 
     def quit(self) -> None:
+        # With the live-feed branch (#120), stopping mid-stream by going straight to
+        # NULL deadlocks the nvjpegenc encoder (buffers in flight). Inject EOS so the
+        # branch drains cleanly first; the EOS bus message then quits the loop (see
+        # _on_bus_message). A safety timer forces the loop down if EOS never arrives
+        # (e.g. a live source that won't propagate it). Without a feed branch the old
+        # direct quit is kept (the detect+track-only pipeline tears down fine).
+        if self._feed_thread is not None and self._pipeline is not None:
+            self._pipeline.send_event(Gst.Event.new_eos())
+            GLib.timeout_add_seconds(5, self._force_quit)
+        elif self._loop is not None:
+            self._loop.quit()
+
+    def _force_quit(self) -> bool:
+        _LOG.warning("deepstream: EOS drain timed out; forcing loop quit")
         if self._loop is not None:
             self._loop.quit()
+        return False
 
     def _on_bus_message(self, _bus: "Any", msg: "Any") -> bool:
         t = msg.type
@@ -290,6 +414,13 @@ class DeepStreamPipeline:  # pragma: no cover - target-only (GStreamer/pyds)
         return True
 
     def stop(self) -> None:
+        # Stop the feed pump BEFORE the NULL transition (#120): the pump is the
+        # only thing running Python against the appsink, so joining it first means
+        # the NULL teardown can't deadlock on an in-flight pull.
+        if self._feed_stop is not None:
+            self._feed_stop.set()
+        if self._feed_thread is not None and self._feed_thread.is_alive():
+            self._feed_thread.join(timeout=2.0)
         if self._pipeline is not None:
             self._pipeline.set_state(Gst.State.NULL)
 

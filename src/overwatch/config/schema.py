@@ -277,6 +277,14 @@ class DashboardConfig(_Strict):
     alert_limit: int = Field(default=10, gt=0)
     event_limit: int = Field(default=10, gt=0)
     dist_dir: Optional[str] = None  # serve prebuilt SPA from here (None -> web/dist)
+    # Live operator feed (#120, ADR-0008): burned-in MJPEG tap off the DeepStream
+    # pipeline, served at /api/feed. feed_fps throttles the served stream (the tap
+    # itself drops to latest; monitoring needs only a few fps). Default OFF: the
+    # feed works, but stopping the pipeline while it streams currently hangs the
+    # DeepStream NULL teardown (tracked as a follow-up); enable it for demos where a
+    # hard stop is acceptable. With it off the supervised app shuts down cleanly.
+    feed_enabled: bool = False
+    feed_fps: int = Field(default=8, gt=0, le=30)
 
 
 class OutputConfig(_Strict):
