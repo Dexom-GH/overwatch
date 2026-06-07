@@ -52,6 +52,11 @@ fusion:
     immobility_seconds: 1800  # starting estimate (30 min); 600 fires on normal rest.
                               # Tune via docs/research/2026-06-07-immobility-threshold-validation.md (#64)
     lameness_score_threshold: 0.6
+    # Restrict immobility to these detector classes (case-insensitive). null = watch
+    # every class. Set it so stationary objects (a COCO scene's tv/chair) don't trip
+    # immobility — e.g. the livestock classes for your detector:
+    #   immobility_classes: [sheep, goat, cow, horse, dog, cat, bird]
+    immobility_classes: null
   events:
     fence_zones: []
 

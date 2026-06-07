@@ -67,6 +67,50 @@ def test_new_episode_after_movement_fires_again():
     assert mon.update_immobility(22.0, _track(1, 200, 200)) is not None  # immobile again
 
 
+def _classed_track(track_id, class_name, cx=10, cy=10):
+    return Track(
+        track_id=track_id, frame_id=0, bbox=(cx - 1, cy - 1, cx + 1, cy + 1),
+        class_id=0, class_name=class_name, confidence=0.9,
+    )
+
+
+def test_class_filter_ignores_unlisted_classes():
+    # immobility restricted to livestock -> a stationary "tv" never trips it (the
+    # #84 indoor-scene furniture-immobility noise).
+    mon = HealthMonitor(immobility_seconds=10.0, move_threshold_px=5.0, classes={"sheep", "cow"})
+    tv = _classed_track(2, "tv")
+    mon.update_immobility(0.0, tv)
+    assert mon.update_immobility(20.0, tv) is None  # stationary long, but filtered out
+
+
+def test_class_filter_allows_listed_class():
+    mon = HealthMonitor(immobility_seconds=10.0, move_threshold_px=5.0, classes={"sheep", "cow"})
+    mon.update_immobility(0.0, _track(1, 10, 10))                       # class_name "sheep"
+    assert mon.update_immobility(10.0, _track(1, 10, 10)) is not None
+
+
+def test_class_filter_is_case_insensitive():
+    mon = HealthMonitor(immobility_seconds=10.0, move_threshold_px=5.0, classes={"SHEEP"})
+    mon.update_immobility(0.0, _track(1, 10, 10))                       # class_name "sheep"
+    assert mon.update_immobility(10.0, _track(1, 10, 10)) is not None
+
+
+def test_no_filter_watches_every_class():
+    mon = HealthMonitor(immobility_seconds=10.0, move_threshold_px=5.0)  # classes=None
+    tv = _classed_track(2, "tv")
+    mon.update_immobility(0.0, tv)
+    assert mon.update_immobility(10.0, tv) is not None  # no filter -> every class fires
+
+
+def test_from_config_reads_immobility_classes():
+    cfg = type("HC", (), {"immobility_seconds": 10.0, "immobility_classes": ["Sheep", "Goat"]})()
+    mon = HealthMonitor.from_config(cfg, move_threshold_px=5.0)
+    mon.update_immobility(0.0, _classed_track(1, "goat"))
+    assert mon.update_immobility(10.0, _classed_track(1, "goat")) is not None  # listed
+    mon.update_immobility(0.0, _classed_track(2, "person"))
+    assert mon.update_immobility(10.0, _classed_track(2, "person")) is None    # not listed
+
+
 def test_per_track_state_is_independent():
     mon = HealthMonitor(immobility_seconds=10.0, move_threshold_px=5.0)
     mon.update_immobility(0.0, _track(1, 10, 10))
