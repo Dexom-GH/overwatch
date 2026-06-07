@@ -78,6 +78,27 @@ def _alert_dict(a: "Alert") -> "Dict[str, Any]":
     }
 
 
+def dashboard_summary(state: "DashboardState") -> "Dict[str, Any]":
+    """At-a-glance rollup of the snapshot for the console's info panel (#121).
+
+    Derived purely from the snapshot's lists, so the counts reflect the trailing
+    window the snapshot was built over (alerts/events are the recent, limited
+    lists). ``last_activity_at`` is the newest alert-or-event timestamp, or
+    ``None`` when the window is quiet.
+    """
+    alerts = state.recent_alerts
+    events = state.recent_events
+    times = [a.timestamp for a in alerts] + [e.timestamp for e in events]
+    return {
+        "total_count": sum(c.count for c in state.zone_counts),
+        "zones_reporting": len(state.zone_counts),
+        "recent_alert_count": len(alerts),
+        "critical_alert_count": sum(1 for a in alerts if a.severity == "critical"),
+        "recent_event_count": len(events),
+        "last_activity_at": max(times) if times else None,
+    }
+
+
 def state_dict(state: "DashboardState", *, refresh_seconds: int = 5) -> "Dict[str, Any]":
     """Serialize a :class:`DashboardState` to the JSON shape the SPA consumes.
 
@@ -87,6 +108,7 @@ def state_dict(state: "DashboardState", *, refresh_seconds: int = 5) -> "Dict[st
     return {
         "generated_at": state.generated_at,
         "refresh_seconds": refresh_seconds,
+        "summary": dashboard_summary(state),
         "zone_counts": [_zone_count_dict(c) for c in state.zone_counts],
         "recent_alerts": [_alert_dict(a) for a in state.recent_alerts],
         "recent_events": [_event_dict(e) for e in state.recent_events],
@@ -252,4 +274,11 @@ def serve(cfg: "Any") -> None:  # pragma: no cover - runtime entry (blocking)
         store.close()
 
 
-__all__ = ["create_app", "state_dict", "DashboardServer", "make_server", "serve"]
+__all__ = [
+    "create_app",
+    "dashboard_summary",
+    "state_dict",
+    "DashboardServer",
+    "make_server",
+    "serve",
+]

@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState } from 'react'
 import { fetchState, type DashboardState } from './api'
+import { humanizeEventKind, mergeActivity, relativeTime, type ActivityItem } from './feed'
 
 const DEFAULT_POLL_SECONDS = 5
 
-// Operator console shell (#124). This is the SPA + data-API scaffold that the
-// dashboard slices build on: the live camera feed + detection overlays (#119 /
-// #120), the rich alerts strip + info panel (#121), and client-side overlays
-// (#122) land on top of this shell — it deliberately stays minimal for now.
+// Operator-console shell: info panel + live activity strip (#121), built on the
+// SPA + JSON-API scaffold (#124). It short-polls /api/state, so new alerts and
+// events appear without a manual refresh. The live camera feed + detection
+// overlays land on top of this shell in #119 / #120 / #122.
 export default function App() {
   const [state, setState] = useState<DashboardState | null>(null)
   const [error, setError] = useState<string | null>(null)
   const timer = useRef<number | undefined>(undefined)
+  const seen = useRef<Set<string> | null>(null) // null until first load (no first-load highlight)
 
   useEffect(() => {
     let cancelled = false
@@ -38,21 +40,44 @@ export default function App() {
     }
   }, [])
 
+  const activity = state ? mergeActivity(state) : []
+  // Mark items not seen on the previous poll as "new" (skip the very first load).
+  const newKeys = new Set<string>()
+  if (state) {
+    if (seen.current === null) {
+      seen.current = new Set(activity.map((i) => i.key))
+    } else {
+      for (const item of activity) {
+        if (!seen.current.has(item.key)) {
+          newKeys.add(item.key)
+          seen.current.add(item.key)
+        }
+      }
+    }
+  }
+
   return (
     <main>
       <header>
         <h1>Overwatch — operator console</h1>
         <p className="meta">
-          Console shell (#124). Live camera feed, detection overlays and the full
-          alerts UI arrive in #119 / #120 / #121.
+          Live monitoring (#121). Camera feed + detection overlays arrive in
+          #119 / #120 / #122.
         </p>
       </header>
 
       {error && <p className="banner error">data unavailable — {error}</p>}
-      {!state && !error && <p className="banner">loading…</p>}
+      {!state && !error && <p className="banner">connecting…</p>}
 
       {state && (
         <>
+          <InfoPanel state={state} />
+
+          <section>
+            <h2>Activity</h2>
+            <ActivityStrip items={activity} newKeys={newKeys} now={state.generated_at} />
+          </section>
+
           <section>
             <h2>Zone counts</h2>
             {state.zone_counts.length === 0 ? (
@@ -70,23 +95,6 @@ export default function App() {
             )}
           </section>
 
-          <section>
-            <h2>Recent alerts</h2>
-            {state.recent_alerts.length === 0 ? (
-              <p className="empty">no recent alerts</p>
-            ) : (
-              <ul className="alerts">
-                {state.recent_alerts.map((a, i) => (
-                  <li key={i} className={`sev-${a.severity}`}>
-                    <span className="sev">{a.severity}</span>
-                    <span className="title">{a.title}</span>
-                    <span className="message">{a.message}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-
           <footer className="meta">
             updated {new Date(state.generated_at * 1000).toLocaleTimeString()} ·
             polling every {state.refresh_seconds}s · read-only
@@ -94,5 +102,76 @@ export default function App() {
         </>
       )}
     </main>
+  )
+}
+
+function InfoPanel({ state }: { state: DashboardState }) {
+  const s = state.summary
+  const cards: Array<{ label: string; value: string; tone?: string }> = [
+    { label: 'Animals in view', value: String(s.total_count) },
+    { label: 'Zones reporting', value: String(s.zones_reporting) },
+    {
+      label: 'Critical alerts',
+      value: String(s.critical_alert_count),
+      tone: s.critical_alert_count > 0 ? 'critical' : undefined,
+    },
+    { label: 'Recent alerts', value: String(s.recent_alert_count) },
+    {
+      label: 'Last activity',
+      value: s.last_activity_at === null ? '—' : relativeTime(s.last_activity_at, state.generated_at),
+    },
+  ]
+  return (
+    <section className="info-panel">
+      {cards.map((c) => (
+        <div key={c.label} className={`stat${c.tone ? ` stat-${c.tone}` : ''}`}>
+          <div className="stat-value">{c.value}</div>
+          <div className="stat-label">{c.label}</div>
+        </div>
+      ))}
+    </section>
+  )
+}
+
+function ActivityStrip({
+  items,
+  newKeys,
+  now,
+}: {
+  items: ActivityItem[]
+  newKeys: Set<string>
+  now: number
+}) {
+  if (items.length === 0) {
+    return <p className="empty">no recent activity</p>
+  }
+  return (
+    <ul className="activity">
+      {items.map((item) => {
+        const isNew = newKeys.has(item.key)
+        if (item.itemType === 'alert') {
+          return (
+            <li key={item.key} className={`row sev-${item.severity}${isNew ? ' is-new' : ''}`}>
+              <span className="badge sev">{item.severity}</span>
+              <span className="row-title">{item.title}</span>
+              <span className="row-detail">{item.message}</span>
+              <span className="row-time">{relativeTime(item.timestamp, now)}</span>
+            </li>
+          )
+        }
+        return (
+          <li key={item.key} className={`row kind-event${isNew ? ' is-new' : ''}`}>
+            <span className="badge event">event</span>
+            <span className="row-title">{humanizeEventKind(item.kind)}</span>
+            <span className="row-detail">
+              {item.zone_id ? `zone ${item.zone_id}` : ''}
+              {item.zone_id && item.track_id != null ? ' · ' : ''}
+              {item.track_id != null ? `track ${item.track_id}` : ''}
+            </span>
+            <span className="row-time">{relativeTime(item.timestamp, now)}</span>
+          </li>
+        )
+      })}
+    </ul>
   )
 }

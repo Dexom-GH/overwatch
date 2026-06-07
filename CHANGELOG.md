@@ -117,5 +117,14 @@ All notable changes to Overwatch are recorded here. Format follows
   **no Node on-device** (ADR-0008 invariant). `fastapi`/`uvicorn` pinned `<0.116`/`<0.34`
   for the Jetson's Python 3.8. **On-device verification (SPA shell served from the
   bundled `dist/` over the LAN) is the remaining DoD leg.**
+- Operator-console shell: live alerts strip + info panel (#121, ADR-0008). Builds on
+  the #124 SPA: the backend `/api/state` gains a host-unit-tested `summary` rollup
+  (totals / zones-reporting / recent + critical alert counts / last-activity), and the
+  SPA renders an **info panel** (stat cards) + a **live activity strip** merging
+  EventStore alerts and events newest-first (severity/event badges, relative times,
+  new-arrival highlight), updating without a manual refresh via short-poll. Pure
+  EventStore/host work — no DeepStream, no new bus topic. **Verified on-device** on the
+  Jetson rendering against a real pipeline-produced store (150 records), served from the
+  bundled `dist/` with no Node.
 
 [Unreleased]: https://github.com/Dexom-GH/overwatch/commits/master
