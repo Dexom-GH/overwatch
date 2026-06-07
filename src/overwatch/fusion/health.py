@@ -22,7 +22,7 @@ Target code — kept Python 3.8-compatible.
 from __future__ import annotations
 
 import math
-from typing import Dict, Optional
+from typing import Collection, Dict, Optional, Set
 
 from overwatch.bus.schemas import Alert, Event, HealthSignal, Pose, Track
 from overwatch.fusion.phrasing import animal_noun, human_duration
@@ -48,21 +48,38 @@ class HealthMonitor:
     ``immobility_seconds`` is the dwell threshold; ``move_threshold_px`` is how far
     a centroid may drift (pixels) and still count as "the same spot". Both are
     placeholders to be tuned against ground truth (see #19).
+
+    ``classes`` optionally restricts immobility to specific detector classes
+    (case-insensitive). ``None`` (default) watches every track; a collection (e.g.
+    ``{"sheep", "goat", "cow"}``) makes only those classes trip immobility — so a
+    stationary TV/chair in a COCO scene no longer fires. Other rules are unaffected.
     """
 
     def __init__(
-        self, immobility_seconds: float, move_threshold_px: float = 25.0
+        self,
+        immobility_seconds: float,
+        move_threshold_px: float = 25.0,
+        classes: "Optional[Collection[str]]" = None,
     ) -> None:
         self._immobility_seconds = immobility_seconds
         self._move_threshold = move_threshold_px
+        # Normalize the allow-list to lower-case for case-insensitive matching;
+        # None means "no filter — watch every class" (the original behaviour).
+        self._classes: "Optional[Set[str]]" = (
+            None if classes is None else {c.lower() for c in classes}
+        )
         self._dwell: Dict[int, _TrackDwell] = {}
 
     @classmethod
     def from_config(cls, cfg: object, move_threshold_px: float = 25.0) -> "HealthMonitor":
-        """Build from a health-config object exposing ``immobility_seconds`` (duck-typed)."""
+        """Build from a health-config object exposing ``immobility_seconds`` (duck-typed).
+
+        Also reads an optional ``immobility_classes`` allow-list if the config has one.
+        """
         return cls(
             immobility_seconds=cfg.immobility_seconds,  # type: ignore[attr-defined]
             move_threshold_px=move_threshold_px,
+            classes=getattr(cfg, "immobility_classes", None),
         )
 
     def update_immobility(self, timestamp: float, track: Track) -> Optional[HealthSignal]:
@@ -72,7 +89,13 @@ class HealthMonitor:
         drifted past ``move_threshold_px`` resets the anchor/timer (the animal
         moved — AC2); otherwise, once it has been stationary for
         ``immobility_seconds``, one ``HealthSignal`` is emitted for this episode.
+
+        Tracks whose class is outside the configured ``classes`` allow-list are
+        ignored entirely (no dwell kept) — immobility is reported only for the
+        classes you care about.
         """
+        if self._classes is not None and track.class_name.lower() not in self._classes:
+            return None
         curr = bbox_centroid(track.bbox)
         dwell = self._dwell.get(track.track_id)
         if dwell is None:

@@ -139,6 +139,10 @@ class InferenceConfig(_Strict):
 class HealthConfig(_Strict):
     immobility_seconds: int = Field(gt=0, json_schema_extra=_MUST_TUNE)
     lameness_score_threshold: float = Field(ge=0.0, le=1.0, json_schema_extra=_MUST_TUNE)
+    # Restrict immobility to these detector classes (case-insensitive). null/empty =
+    # watch every class (default). Set e.g. ["sheep","goat","cow","horse","dog","cat",
+    # "bird"] so stationary furniture/objects in a COCO scene don't trip it.
+    immobility_classes: Optional[List[str]] = None
 
 
 class EventsConfig(_Strict):

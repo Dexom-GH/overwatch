@@ -23,7 +23,7 @@ from the live #15 pipeline. Target code — Python 3.8 compatible.
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Sequence
+from typing import TYPE_CHECKING, Callable, Collection, Dict, List, Optional, Sequence
 
 from overwatch.bus.schemas import Alert, Track
 from overwatch.fusion.events import EventDetector
@@ -94,6 +94,7 @@ class MonoAlertFanout:
         zone_thresholds: "Optional[Dict[str, int]]" = None,
         immobility_seconds: float = 600.0,
         move_threshold_px: float = 25.0,
+        immobility_classes: "Optional[Collection[str]]" = None,
         clock: "Callable[[], float]" = time.monotonic,
         record_sink: "Optional[RecordSink]" = None,
     ) -> None:
@@ -102,7 +103,9 @@ class MonoAlertFanout:
         # Event) so the durable store + dashboard see them, not just Alerts (#111).
         self._record_sink = record_sink
         self._events = EventDetector(fences or [])
-        self._health = HealthMonitor(immobility_seconds, move_threshold_px=move_threshold_px)
+        self._health = HealthMonitor(
+            immobility_seconds, move_threshold_px=move_threshold_px, classes=immobility_classes
+        )
         self._counter = ZoneCounter(zones or [], thresholds=zone_thresholds)
         self._assembler = FrameAssembler(self._on_frame, clock=clock)
         # Last published count per zone, so fusion.count is emitted on change only
