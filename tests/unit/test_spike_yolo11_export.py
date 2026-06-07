@@ -34,3 +34,10 @@ def test_rejects_non_deepstream_layout():
     # raw Ultralytics-style last dim (not 6) must be rejected
     with pytest.raises(DeepStreamLayoutError):
         verify_deepstream_onnx(_model([1, 8400, 4], 12))
+
+
+def test_rejects_dynamic_last_dim():
+    # a symbolic (string) last dim yields dim_value == 0 -> dynamic axis,
+    # exactly the bad ONNX the guard exists to reject
+    with pytest.raises(DeepStreamLayoutError):
+        verify_deepstream_onnx(_model([1, 8400, "n"], 12))
