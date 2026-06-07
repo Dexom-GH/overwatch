@@ -154,5 +154,15 @@ All notable changes to Overwatch are recorded here. Format follows
   resolve it) means the supervised app would not shut down cleanly with the feed on —
   so it ships opt-in (enable for demos) with the graceful-teardown fix tracked as a
   follow-up.
+- Fix the live-feed teardown deadlock; feed back ON by default (#129). Root cause
+  (bisected on-device): the feed branch's **`appsink`** stalled the DeepStream `NULL`
+  transition mid-stream (the identical elements ending in `fakesink` tore down
+  cleanly). Fix: drop the appsink + pump thread and copy each encoded JPEG into the
+  slot via a **buffer probe on the `nvjpegenc` src pad** (the same pattern as the
+  tracker probe) ending in `fakesink`. Also corrected `quit()` to inject a single EOS
+  and end the loop on the EOS bus message (not a re-injecting force-timer). Verified
+  on the Jetson: stopping mid-stream with frames flowing now tears down cleanly
+  (`NULL complete`) across early/mid/late-stream stops, frames still reach the slot.
+  `output.dashboard.feed_enabled` is **`True`** again.
 
 [Unreleased]: https://github.com/Dexom-GH/overwatch/commits/master
