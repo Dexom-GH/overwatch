@@ -57,6 +57,11 @@ fusion:
     # immobility — e.g. the livestock classes for your detector:
     #   immobility_classes: [sheep, goat, cow, horse, dog, cat, bird]
     immobility_classes: null
+    # Per-class dwell-threshold overrides in seconds (case-insensitive). A class that
+    # legitimately holds still (people sit/rest/sleep) needs far longer than livestock
+    # before it's "immobile". Classes without an override use immobility_seconds.
+    #   immobility_class_seconds: {person: 1800}   # 30 min for people
+    immobility_class_seconds: null
   events:
     fence_zones: []
 
