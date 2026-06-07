@@ -42,6 +42,10 @@ dev = [
     "opencv-python",
     # Starlette/FastAPI TestClient transport — dashboard backend tests (#124).
     "httpx",
+    # ONNX inspection for the host-side detector-export guard
+    # (scripts/dev/spike_yolo11_export.py + its tests, YOLOv11 spike). Host/dev
+    # only — the Jetson builds engines from ONNX via TensorRT, not this wheel.
+    "onnx",
 ]
 
 [project.scripts]

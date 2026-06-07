@@ -125,6 +125,20 @@ forward a documented move rather than a silent one.
   detector fine-tuning is required regardless (COCO omits goat/rabbit/guinea pig).
   `configs/animals.yaml` carries the `tier:` field; detector-model pick deferred
   pending **ADR-0005 (#27)** licensing + **ADR-0006 (#29)** multi-camera.
+- **2026-06-07 — YOLOv11 detector viability PROVEN on-device (spike, GO):** explored
+  upgrading the detector to YOLOv11 to add **people** detection alongside animals +
+  better classification/tracking. Decomposed into **A → B → C → D**: (A) v11-on-TRT-8.5
+  viability spike *(done, GO)*; (B) class-set expansion + retrain (`person` + animals)
+  — carries the mAP/fps-vs-v8 decision gate; (C) human semantics downstream
+  (intrusion/presence/Slack); (D) tracking + data-quality pass. **Spike A result
+  (on Jetson Xavier NX, TRT 8.5.02):** stock `yolo11n` exports at opset 12, builds an
+  FP16 engine, and `nvinfer` (unchanged DeepStream-Yolo parser) detects `person` +
+  vehicles at ~47 fps single-stream. **Device gotcha found:** this Jetson's
+  `torch 2.1` produces NaN on CPU for v11's C2PSA attention — the export **must trace on
+  GPU** (fix in `scripts/dev/spike_yolo11_export.py --device cuda`); engine build ~20 min.
+  See [docs/research/2026-06-07-yolo11-trt85-viability.md](research/2026-06-07-yolo11-trt85-viability.md)
+  + the spec/plan under `docs/superpowers/`. B/C/D are **not yet groomed** — pending PO
+  decomposition into `status:ready` issues before implementation.
 - **2026-06-04 — ZED/depth path DEFERRED; RTSP/mono path is the first on-device
   demo (PO-approved):** the ZED 2i is not yet cabled to a USB-3 port (#54), so the
   depth differentiator and its dependents — first ZED-depth e2e demo (#16),
