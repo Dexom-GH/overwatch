@@ -110,6 +110,15 @@ ABC — with zero stage-code changes because everything targets the ABC.
 - The `bus-stage-conventions` skill keeps describing pub/sub in transport-neutral
   terms; add a note that high-rate ephemeral vs durable topics wire to different
   transports.
+- **Dashboard live feed (#119 / ADR-0008, 2026-06-07):** annotated MJPEG frames for
+  the operator console stay **off the bus entirely** — the DeepStream `InferenceStage`
+  and the `DashboardStage` are threads in one process, so the encoded frame passes
+  via an **in-process latest-frame slot**, never the ZeroMQ ephemeral tier and never
+  the durable SQLite store. **No new `bus/schemas.py` / `bus/topics.py` topic** is
+  added in V1. This is the "shared-memory / GStreamer handles over either bus" path
+  the *Revisit if* note prefers; a bus topic would only be reconsidered if a feature
+  (V2 multi-process / remote / multi-stream dashboard) forces frames across a process
+  boundary.
 
 ## Revisit if
 
