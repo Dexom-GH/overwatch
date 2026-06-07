@@ -77,13 +77,17 @@ B1 reports measured numbers.
      precision-at-operating-point for the record; they do **not** gate (low
      precision = nuisance alerts, acceptable for V1; can be tuned later).
 
-   If the farm-person val set yields too few person instances to estimate recall
-   stably (B0 targets ~100–300 frames, people are large/few-per-frame), B1 must
-   flag it and either expand the val set or escalate the bar definition to the PO
-   rather than passing the gate on a noisy estimate.
-3. **fps (absolute, hard):** sustained **on-device fps ≥ camera rate** (real-time),
-   measured at the same operating point as the person-recall measurement
-   (baseline reference: v8 ~56 fps from #15; spike A saw v11n ~47 fps single-stream).
+   **Val-set validity (hard, PO-set 2026-06-07):** the farm-person val set must
+   contain **≥ 300 labeled person instances** for the recall estimate to be
+   statistically usable (people are large/few-per-frame, so B0's ~100–300 frames
+   may need expanding to hit this). If it has fewer, B1 **must expand the val set**
+   before the gate is valid — the gate may **not** be passed on a sub-300-instance
+   estimate.
+3. **fps (absolute, hard):** sustained **on-device fps ≥ 30 fps** (the V1 camera
+   rate; PO-set 2026-06-07), measured at the same operating point as the
+   person-recall measurement (baseline: v8 ~56 fps from #15; spike A saw v11n
+   ~47 fps single-stream — both clear 30, so fps is expected to bind only once
+   multi-stream batching is added).
 
 **All three are hard gates.** If v11 fails **any** of them, **keep YOLOv8 and
 demote YOLOv11 to V2.**
