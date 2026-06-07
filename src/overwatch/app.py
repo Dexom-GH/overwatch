@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from typing import TYPE_CHECKING, Any, List, Optional
 
 from overwatch.capture.service import run_capture
@@ -89,6 +90,12 @@ class FusionStage(Stage):
             zone_thresholds=thresholds,
             immobility_seconds=cfg.fusion.health.immobility_seconds,
             record_sink=self._publish_record,
+            # Stamp records with WALL-CLOCK time: the durable store, the operator
+            # dashboard's trailing-window query, and age-based retention all compare
+            # against time.time(). The fanout defaults to time.monotonic (great for
+            # dwell math, but monotonic timestamps fall outside the dashboard window
+            # and break age pruning). Dwell elapsed is still correct under wall-clock.
+            clock=time.time,
         )
         bus.subscribe(topics.INFER_TRACK, self._fanout.on_track)
 
