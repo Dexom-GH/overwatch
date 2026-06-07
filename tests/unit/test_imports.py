@@ -45,9 +45,9 @@ HOST_SAFE_MODULES = [
     "overwatch.output.store",
     "overwatch.output.sqlite_store",         # SQLite EventStore durable tier (#18)
     "overwatch.output.retention",            # data-retention / rotation policy (#40)
-    "overwatch.output.dashboard",            # read-only operator dashboard view (#18)
+    "overwatch.output.dashboard",            # operator-console view layer (#18 -> #124)
     "overwatch.output.dashboard.view",
-    "overwatch.output.dashboard.server",     # thin read-only HTML dashboard surface (#18)
+    "overwatch.output.dashboard.server",     # operator-console backend: SPA + JSON API (#124)
     "overwatch.config",
     "overwatch.config.loader",
     "overwatch.observability",               # metrics + structured logging (#13)

@@ -23,6 +23,12 @@ dependencies = [
     "pydantic>=2",
     "pyzmq",
     "python-dotenv",
+    # Operator-dashboard backend (#124, ADR-0008): serves the prebuilt SPA dist/
+    # + a JSON data API. Pure-Python, so they install on the Jetson too. Pinned
+    # BELOW the releases that drop Python 3.8 support (FastAPI 0.116 / uvicorn
+    # 0.34) — the target runtime is 3.8.
+    "fastapi>=0.110,<0.116",
+    "uvicorn>=0.29,<0.34",
 ]
 
 [project.optional-dependencies]
@@ -34,6 +40,8 @@ dev = [
     # system GStreamer/NVDEC-enabled OpenCV provides cv2 instead (see
     # requirements.target.txt) — do NOT pip-install this wheel on-device.
     "opencv-python",
+    # Starlette/FastAPI TestClient transport — dashboard backend tests (#124).
+    "httpx",
 ]
 
 [project.scripts]

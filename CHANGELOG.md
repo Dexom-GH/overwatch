@@ -103,5 +103,19 @@ All notable changes to Overwatch are recorded here. Format follows
   every `schemas.*` dataclass round-trips over the ZeroMQ ephemeral tier
   (ADR-0001). `pyzmq` added as a host-runnable dependency; dev `bus_tap.py`
   prints decoded typed messages.
+- Operator-console SPA toolchain + backend shift (#124, ADR-0008): the dashboard
+  becomes a **React + Vite + TypeScript SPA** served by a **FastAPI** backend, fully
+  **superseding the #18 read-only HTML surface**. `output/dashboard/server.py` now
+  exposes `GET /api/state` (the `DashboardState` as JSON) + `/api/health` and serves
+  the prebuilt SPA `dist/`; it stays **read-only** (mutating methods → 405) and
+  host-unit-tested via the FastAPI `TestClient`. `make_server` returns a uvicorn-backed
+  `DashboardServer` with the same `serve_forever`/`shutdown`/`server_close` surface so
+  the supervised `DashboardStage` (#110) is unchanged. New SPA project under
+  `output/dashboard/web/` (its own Node toolchain; never imports `overwatch`). A CI
+  job (`ci.yml`) builds the SPA and uploads the bundle; `release.yml` attaches
+  `dashboard-dist.tar.gz`; `deploy.sh` stages the prebuilt `dist/` on the Jetson —
+  **no Node on-device** (ADR-0008 invariant). `fastapi`/`uvicorn` pinned `<0.116`/`<0.34`
+  for the Jetson's Python 3.8. **On-device verification (SPA shell served from the
+  bundled `dist/` over the LAN) is the remaining DoD leg.**
 
 [Unreleased]: https://github.com/Dexom-GH/overwatch/commits/master

@@ -43,11 +43,27 @@ jobs:
           python -m pip install --upgrade pip build
           python -m build
 
+      # Operator-console SPA (#124, ADR-0008): build the static bundle on the CI
+      # runner and attach it to the release so scripts/target/deploy.sh can stage
+      # the prebuilt dist/ on the Jetson — no Node is ever provisioned on-device.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: src/overwatch/output/dashboard/web/package-lock.json
+
+      - name: Build + package dashboard SPA bundle
+        working-directory: src/overwatch/output/dashboard/web
+        run: |
+          npm ci
+          npm run build
+          tar -czf "$GITHUB_WORKSPACE/dashboard-dist.tar.gz" dist
+
       - name: Create DRAFT GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "v${{ github.event.inputs.version }}" dist/* \
+          gh release create "v${{ github.event.inputs.version }}" dist/* dashboard-dist.tar.gz \
             --draft \
             --generate-notes \
             --title "v${{ github.event.inputs.version }}"

@@ -75,6 +75,12 @@ bundle** that the backend serves as static assets.
   host-side toolchain** (it never imports the `overwatch` package or touches
   target-only deps).
 
+**Frameworks chosen (implemented in #124):** frontend **React + Vite + TypeScript**;
+backend **FastAPI + uvicorn** (pure-Python, pinned `<0.116` / `<0.34` to stay on the
+Jetson's Python 3.8). The backend exposes `GET /api/state` + `/api/health` and serves
+the prebuilt SPA `dist/`; transport for the live feed (MJPEG/SSE/WS) remains the
+**open** part below, owned by #119.
+
 This **fully supersedes the #18 dashboard surface**:
 
 > **#18 read-only static-HTML event table with `<meta refresh>` (no JS, no build)
