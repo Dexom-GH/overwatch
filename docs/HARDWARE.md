@@ -22,10 +22,16 @@ work tree, models, and data now share ample room — the DeepStream + ZED SDK +
 PyTorch footprint is no longer a constraint. Put models under `models/` and
 captured data under `data/` (both gitignored).
 
-**Sensor I/O note (#54):** the ZED 2i is a USB-3.0 camera and connects to one of
-the **4× USB 3.x** Type-A ports — the device has the ports; #54 is about cabling
-the ZED onto a USB-3.x (not USB-2) port so it enumerates at full bandwidth. The
-NVMe occupies the M.2 Key M slot; Key E is available for the WiFi/BT module.
+**Sensor I/O note (#54 — VERIFIED 2026-06-21):** the ZED 2i is a USB-3.0 camera on
+one of the **4× USB 3.x** Type-A ports. With the new USB-3 cord fitted, the camera
+**enumerates on the USB-3 controller**: `lsusb -t` shows it on **Bus 02**
+(`tegra-xusb`, 10000M root hub) negotiating a **5000M (USB 3.0 SuperSpeed)** link on
+its Video interfaces — not the 480M USB-2 hub. On-device pyzed checks pass:
+`sl.Camera.get_device_list()` returns the **ZED 2i, S/N 38241720, AVAILABLE**; the
+camera opens at **HD720@60** and a `grab()` returns **synchronized RGB (1280×720) +
+depth (1280×720)** (center-pixel depth measured ≈0.585 m), with no
+`CAMERA NOT DETECTED`. The earlier USB-2 enumeration failure is resolved. The NVMe
+occupies the M.2 Key M slot; Key E is available for the WiFi/BT module.
 
 **Architecture ceiling:** Xavier NX is an ARMv8.2 / Volta part. This caps the
 software stack at **JetPack 5.1.x** — JetPack 6 is Orin-only. See
@@ -63,6 +69,14 @@ bus) lose half their cores under peak GPU load, and the supply still can't hold
 inference load. Pinning `jetson_clocks` or moving to 20W
 raises draw further — only after confirming current headroom and that the supply
 is rated for transient peaks (not just steady 15W).
+
+**Update 2026-06-21 — new PCU fitted (replaces the #45 adapter):** a new power unit
+has landed and **supersedes** the barrel adapter from the 2026-06-03 fix. The
+over-current/core-shedding behaviour above was measured on the *old* supply, so it
+must be **re-benchmarked on the new PCU** before being treated as current — see #46
+(re-scoped to confirm the new PCU resolves the over-current headroom under the full
+concurrent GPU+CPU pipeline). Until that re-benchmark runs, keep capturing on-device
+numbers at a non-core-shedding power mode.
 
 ## Primary sensor — ZED 2i stereo camera
 
